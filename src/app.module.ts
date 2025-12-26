@@ -9,7 +9,7 @@ import { CartModule } from './cart/cart.module';
 import { OrdersModule } from './orders/orders.module';
 import { LeadsModule } from './leads/leads.module';
 import { StoreConfigModule } from './config/store-config.module';
-
+import { UploadModule } from './upload/upload.module';
 @Module({
     imports: [
         ConfigModule.forRoot({
@@ -24,6 +24,7 @@ import { StoreConfigModule } from './config/store-config.module';
         OrdersModule,
         LeadsModule,
         StoreConfigModule,
+        UploadModule,
     ],
 })
 export class AppModule { }
