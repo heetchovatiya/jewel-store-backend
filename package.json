@@ -4,7 +4,7 @@
   "description": "Jewel-Core Multi-tenant E-commerce Backend",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc",
+    "build": "NODE_OPTIONS='--max-old-space-size=512' tsc",
     "start": "node dist/main.js",
     "start:dev": "ts-node src/main.ts",
     "start:watch": "nodemon --exec ts-node src/main.ts"
