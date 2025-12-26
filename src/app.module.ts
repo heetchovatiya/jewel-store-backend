@@ -27,4 +27,5 @@ import { UploadModule } from './upload/upload.module';
         UploadModule,
     ],
 })
+
 export class AppModule { }

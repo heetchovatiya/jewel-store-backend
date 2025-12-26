@@ -5,27 +5,14 @@ import { AppModule } from './app.module';
 async function bootstrap() {
     const app = await NestFactory.create(AppModule);
 
-    // Enable CORS for frontend (dev + production + Vercel previews)
+    // Allow ALL origins (for debugging)
     app.enableCors({
-        origin: (origin, callback) => {
-            const allowedOrigins = [
-                'http://localhost:3000',
-                'http://localhost:3001',
-                'https://jewel-store-sand.vercel.app',
-                'https://jewel-store-git-main-heets-projects-3796b335.vercel.app',
-            ];
-            // Allow requests with no origin (mobile apps, curl, etc)
-            if (!origin) return callback(null, true);
-            // Allow all Vercel preview URLs
-            if (origin.endsWith('.vercel.app') || allowedOrigins.includes(origin)) {
-                return callback(null, true);
-            }
-            callback(null, false);
-        },
+        origin: true,
         credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],
     });
 
-    // Global validation pipe
     app.useGlobalPipes(new ValidationPipe({
         whitelist: true,
         transform: true,
@@ -34,6 +21,6 @@ async function bootstrap() {
 
     const port = process.env.PORT || 3001;
     await app.listen(port);
-    console.log(`🚀 Jewel-Core API running on http://localhost:${port}`);
+    console.log(`🚀 Jewel-Core API running on port ${port}`);
 }
 bootstrap();
