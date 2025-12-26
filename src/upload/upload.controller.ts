@@ -1,11 +1,17 @@
 import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { IsString } from 'class-validator';
 import { UploadService, PresignedUrlResponse } from './upload.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 
 class GetPresignedUrlDto {
+    @IsString()
     folder: string;
+
+    @IsString()
     filename: string;
+
+    @IsString()
     contentType: string;
 }
 
