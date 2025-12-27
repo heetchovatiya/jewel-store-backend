@@ -55,11 +55,12 @@ export class UploadService {
             .replace(/-+/g, '-');
         const key = `${folder}/${timestamp}-${randomId}-${sanitizedFilename}`;
 
+        // Note: ACL is not included here - DO Spaces bucket should be configured
+        // with public file access at the bucket level for simpler, more reliable access
         const command = new PutObjectCommand({
             Bucket: this.bucket,
             Key: key,
             ContentType: contentType,
-            ACL: 'public-read',
         });
 
         // Generate presigned URL valid for 10 minutes
