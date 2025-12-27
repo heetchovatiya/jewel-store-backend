@@ -46,6 +46,19 @@ export class AdminProductsController {
         return this.productsService.findAll(req.tenantId!, { ...query });
     }
 
+    @Get(':id/with-inventory')
+    async getWithInventory(@Req() req: Request, @Param('id') id: string) {
+        const product = await this.productsService.findById(req.tenantId!, id);
+        if (!product) {
+            return { error: 'Product not found' };
+        }
+        const inventory = await this.productsService.getInventory(req.tenantId!, id);
+        return {
+            ...product.toObject(),
+            inventory: inventory || null,
+        };
+    }
+
     @Post()
     create(@Req() req: Request, @Body() createProductDto: CreateProductDto) {
         return this.productsService.create(req.tenantId!, createProductDto);
