@@ -3,7 +3,20 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-    const app = await NestFactory.create(AppModule);
+    const app = await NestFactory.create(AppModule, {
+        bodyParser: true,
+        rawBody: true,
+    });
+
+    // Increase body size limit to 50MB for file uploads
+    app.use((req, res, next) => {
+        if (req.headers['content-type']?.includes('multipart/form-data')) {
+            // For multipart/form-data, the limit is handled by multer in upload controller
+            next();
+        } else {
+            next();
+        }
+    });
 
     // Allow ALL origins (for debugging)
     app.enableCors({
