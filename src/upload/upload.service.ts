@@ -9,6 +9,11 @@ export interface PresignedUrlResponse {
     key: string;
 }
 
+export interface UploadResponse {
+    publicUrl: string;
+    key: string;
+}
+
 @Injectable()
 export class UploadService {
     private s3Client: S3Client;
@@ -35,35 +40,65 @@ export class UploadService {
     }
 
     /**
-     * Generate a presigned URL for uploading a file to DO Spaces
-     * @param folder - The folder/prefix in the bucket (e.g., 'banners', 'products', 'logos')
-     * @param filename - Original filename (will be sanitized)
-     * @param contentType - MIME type of the file
-     * @returns PresignedUrlResponse with upload URL and final public URL
+     * Generate a unique key for a file
      */
-    async getPresignedUploadUrl(
-        folder: string,
-        filename: string,
-        contentType: string,
-    ): Promise<PresignedUrlResponse> {
-        // Sanitize filename and create unique key
+    private generateKey(folder: string, filename: string): string {
         const timestamp = Date.now();
         const randomId = Math.random().toString(36).substring(2, 8);
         const sanitizedFilename = filename
             .toLowerCase()
             .replace(/[^a-z0-9.-]/g, '-')
             .replace(/-+/g, '-');
-        const key = `${folder}/${timestamp}-${randomId}-${sanitizedFilename}`;
+        return `${folder}/${timestamp}-${randomId}-${sanitizedFilename}`;
+    }
 
-        // Note: ACL is not included here - DO Spaces bucket should be configured
-        // with public file access at the bucket level for simpler, more reliable access
+    /**
+     * Upload a file directly to DO Spaces (proxied through backend)
+     * This avoids CORS issues by having the backend upload directly
+     */
+    async uploadFile(
+        folder: string,
+        filename: string,
+        contentType: string,
+        buffer: Buffer,
+    ): Promise<UploadResponse> {
+        const key = this.generateKey(folder, filename);
+
+        const command = new PutObjectCommand({
+            Bucket: this.bucket,
+            Key: key,
+            ContentType: contentType,
+            Body: buffer,
+            ACL: 'public-read',
+        });
+
+        await this.s3Client.send(command);
+
+        const publicUrl = `${this.cdnUrl}/${key}`;
+
+        return {
+            publicUrl,
+            key,
+        };
+    }
+
+    /**
+     * Generate a presigned URL for uploading a file to DO Spaces
+     * Note: This may have CORS issues with some S3-compatible services
+     */
+    async getPresignedUploadUrl(
+        folder: string,
+        filename: string,
+        contentType: string,
+    ): Promise<PresignedUrlResponse> {
+        const key = this.generateKey(folder, filename);
+
         const command = new PutObjectCommand({
             Bucket: this.bucket,
             Key: key,
             ContentType: contentType,
         });
 
-        // Generate presigned URL valid for 10 minutes
         const uploadUrl = await getSignedUrl(this.s3Client, command, {
             expiresIn: 600,
         });
