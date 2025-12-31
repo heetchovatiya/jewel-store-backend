@@ -24,6 +24,7 @@ export class StoreConfigService {
         });
 
         if (!config) {
+            // Only add default categories on FIRST-TIME store creation
             config = new this.configModel({
                 tenantId: new Types.ObjectId(tenantId),
                 storeName: 'My Jewelry Store',
@@ -39,11 +40,8 @@ export class StoreConfigService {
             await config.save();
         }
 
-        // Ensure categories exist even for existing configs without them
-        if (!config.categories || config.categories.length === 0) {
-            config.categories = DEFAULT_CATEGORIES;
-            await config.save();
-        }
+        // Note: We no longer force defaults on existing configs
+        // This allows admins to delete categories without them being restored
 
         return config;
     }
@@ -62,7 +60,7 @@ export class StoreConfigService {
             backgroundColor: config.backgroundColor,
             textColor: config.textColor,
             heroBanners: config.heroBanners,
-            categories: config.categories || DEFAULT_CATEGORIES,
+            categories: config.categories || [],
             aboutUs: config.aboutUs || { enabled: false, title: 'Our Story', description: '', images: [] },
             contactEmail: config.contactEmail,
             contactPhone: config.contactPhone,
