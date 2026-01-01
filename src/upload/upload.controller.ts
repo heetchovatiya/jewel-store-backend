@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Delete, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { IsString, IsNotEmpty } from 'class-validator';
 import { UploadService, PresignedUrlResponse, UploadResponse } from './upload.service';
@@ -17,6 +17,12 @@ class GetPresignedUrlDto {
     @IsString()
     @IsNotEmpty()
     contentType: string;
+}
+
+class DeleteFileDto {
+    @IsString()
+    @IsNotEmpty()
+    url: string;
 }
 
 @Controller('admin/upload')
@@ -61,6 +67,15 @@ export class UploadController {
             file.mimetype,
             file.buffer,
         );
+    }
+
+    /**
+     * Delete a file from DO Spaces
+     */
+    @Delete('file')
+    async deleteFile(@Body() dto: DeleteFileDto): Promise<{ success: boolean }> {
+        const success = await this.uploadService.deleteFile(dto.url);
+        return { success };
     }
 
     /**

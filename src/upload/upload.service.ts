@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export interface PresignedUrlResponse {
@@ -53,6 +53,20 @@ export class UploadService {
     }
 
     /**
+     * Extract the key from a public URL
+     */
+    private extractKeyFromUrl(publicUrl: string): string | null {
+        try {
+            // URL format: https://bucket.region.digitaloceanspaces.com/folder/filename
+            const url = new URL(publicUrl);
+            // Remove leading slash
+            return url.pathname.substring(1);
+        } catch {
+            return null;
+        }
+    }
+
+    /**
      * Upload a file directly to DO Spaces (proxied through backend)
      * This avoids CORS issues by having the backend upload directly
      */
@@ -80,6 +94,31 @@ export class UploadService {
             publicUrl,
             key,
         };
+    }
+
+    /**
+     * Delete a file from DO Spaces
+     */
+    async deleteFile(publicUrl: string): Promise<boolean> {
+        const key = this.extractKeyFromUrl(publicUrl);
+        if (!key) {
+            console.warn('Could not extract key from URL:', publicUrl);
+            return false;
+        }
+
+        try {
+            const command = new DeleteObjectCommand({
+                Bucket: this.bucket,
+                Key: key,
+            });
+
+            await this.s3Client.send(command);
+            console.log('Deleted file from Spaces:', key);
+            return true;
+        } catch (error) {
+            console.error('Failed to delete file from Spaces:', error);
+            return false;
+        }
     }
 
     /**

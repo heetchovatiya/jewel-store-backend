@@ -27,6 +27,10 @@ export class CreateProductDto {
     images?: string[];
 
     @IsOptional()
+    @IsNumber()
+    hoverImageIndex?: number;
+
+    @IsOptional()
     @IsString()
     slug?: string;
 
@@ -89,6 +93,10 @@ export class UpdateProductDto {
     @IsArray()
     @IsString({ each: true })
     images?: string[];
+
+    @IsOptional()
+    @IsNumber()
+    hoverImageIndex?: number;
 
     @IsOptional()
     @IsBoolean()

@@ -26,6 +26,9 @@ export class Product {
     @Prop({ type: [String], default: [] })
     images: string[];
 
+    @Prop({ type: Number, default: null })
+    hoverImageIndex: number;
+
     @Prop({ required: true, index: true })
     slug: string;
 
