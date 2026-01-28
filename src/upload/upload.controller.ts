@@ -37,14 +37,18 @@ export class UploadController {
     @Post('file')
     @UseInterceptors(FileInterceptor('file', {
         limits: {
-            fileSize: 50 * 1024 * 1024, // 50MB limit for high-quality images
+            fileSize: 20 * 1024 * 1024, // 20MB limit
         },
         fileFilter: (req, file, callback) => {
-            const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+            const allowedMimes = [
+                'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+                'video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo'
+            ];
             if (allowedMimes.includes(file.mimetype)) {
                 callback(null, true);
             } else {
-                callback(new BadRequestException('Only JPEG, PNG, WebP, and GIF images are allowed'), false);
+                console.error(`Rejected file with MIME type: ${file.mimetype}`);
+                callback(new BadRequestException(`File type not allowed. Received: ${file.mimetype}. Allowed: images (JPEG, PNG, WebP, GIF) and videos (MP4, WebM, MOV, AVI)`), false);
             }
         },
     }))
