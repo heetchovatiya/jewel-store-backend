@@ -7,7 +7,8 @@
     "build": "NODE_OPTIONS='--max-old-space-size=512' tsc",
     "start": "node dist/main.js",
     "start:dev": "ts-node src/main.ts",
-    "start:watch": "nodemon --exec ts-node src/main.ts"
+    "start:watch": "nodemon --exec ts-node src/main.ts",
+    "migrate:priyincigold-dbs": "bash ./scripts/migrate_to_priyincigold_dbs.sh"
   },
   "keywords": [
     "ecommerce",
@@ -36,6 +37,7 @@
     "multer": "^1.4.5-lts.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "razorpay": "^2.9.6",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.0",
     "sharp": "^0.34.5"

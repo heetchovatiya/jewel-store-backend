@@ -85,7 +85,21 @@ export class ProductsService {
             this.productModel.countDocuments(filter),
         ]);
 
-        return { products, total };
+        const productsWithInventory = await Promise.all(
+            products.map(async (product) => {
+                const inventory = await this.getInventory(tenantId, product._id.toString());
+                return {
+                    ...product.toObject(),
+                    inventory: inventory ? {
+                        stock: inventory.stock,
+                        sku: inventory.sku,
+                        inStock: inventory.stock > 0 || inventory.allowBackorder,
+                    } : { stock: 0, inStock: false },
+                };
+            }),
+        );
+
+        return { products: productsWithInventory as any, total };
     }
 
     async findBySlug(tenantId: string, slug: string): Promise<ProductDocument | null> {

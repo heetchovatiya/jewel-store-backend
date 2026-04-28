@@ -179,7 +179,12 @@ export class OrdersService {
         }
 
         // If cancelling, restore inventory
-        if (updateDto.status === OrderStatus.CANCELLED && order.status !== OrderStatus.CANCELLED) {
+        if (
+            updateDto.status === OrderStatus.CANCELLED &&
+            order.status !== OrderStatus.CANCELLED &&
+            order.status !== OrderStatus.PAYMENT_PENDING &&
+            order.status !== OrderStatus.PAYMENT_FAILED
+        ) {
             for (const item of order.items) {
                 const inventory = await this.productsService.getInventory(tenantId, item.productId.toString());
                 if (inventory && inventory.trackInventory) {

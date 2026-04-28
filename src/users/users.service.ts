@@ -39,6 +39,16 @@ export class UsersService {
         }).exec();
     }
 
+    async findByEmailOrPhone(tenantId: string, identifier: string): Promise<UserDocument | null> {
+        return this.userModel.findOne({
+            tenantId: new Types.ObjectId(tenantId),
+            $or: [
+                { email: identifier.toLowerCase() },
+                { phone: identifier },
+            ],
+        }).exec();
+    }
+
     async findById(tenantId: string, id: string): Promise<UserDocument | null> {
         return this.userModel.findOne({
             _id: new Types.ObjectId(id),
@@ -71,6 +81,39 @@ export class UsersService {
         }
 
         user.addresses.push(addressDto as any);
+        return user.save();
+    }
+
+    async upsertAddress(tenantId: string, userId: string, addressDto: AddAddressDto): Promise<User | null> {
+        const user = await this.findById(tenantId, userId);
+        if (!user) throw new NotFoundException('User not found');
+
+        const exists = user.addresses.some((addr) =>
+            addr.fullName === addressDto.fullName &&
+            addr.phone === addressDto.phone &&
+            addr.addressLine1 === addressDto.addressLine1 &&
+            (addr.addressLine2 || '') === (addressDto.addressLine2 || '') &&
+            addr.city === addressDto.city &&
+            addr.state === addressDto.state &&
+            addr.pincode === addressDto.pincode
+        );
+
+        if (!exists) {
+            const shouldSetDefault = user.addresses.length === 0 || !!addressDto.isDefault;
+            if (shouldSetDefault) {
+                user.addresses.forEach((addr) => { addr.isDefault = false; });
+            }
+
+            user.addresses.push({
+                ...addressDto,
+                isDefault: shouldSetDefault,
+            } as any);
+        }
+
+        if (!user.phone && addressDto.phone) {
+            user.phone = addressDto.phone;
+        }
+
         return user.save();
     }
 

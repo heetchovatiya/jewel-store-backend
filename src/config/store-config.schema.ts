@@ -97,6 +97,12 @@ export class StoreConfig {
 
     @Prop({ default: '₹' })
     currencySymbol: string;
+
+    @Prop()
+    razorpayKeyId: string;
+
+    @Prop()
+    razorpayKeySecret: string;
 }
 
 export const StoreConfigSchema = SchemaFactory.createForClass(StoreConfig);

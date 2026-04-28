@@ -20,7 +20,7 @@ export class AuthService {
     }
 
     async login(tenantId: string, loginDto: LoginDto): Promise<{ user: Partial<User>; token: string }> {
-        const user = await this.usersService.findByEmail(tenantId, loginDto.email);
+        const user = await this.usersService.findByEmailOrPhone(tenantId, loginDto.identifier);
 
         if (!user) {
             throw new UnauthorizedException('Invalid credentials');

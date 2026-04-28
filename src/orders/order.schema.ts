@@ -4,6 +4,8 @@ import { Document, Types } from 'mongoose';
 export type OrderDocument = Order & Document;
 
 export enum OrderStatus {
+    PAYMENT_PENDING = 'payment_pending',
+    PAYMENT_FAILED = 'payment_failed',
     PENDING = 'pending',
     CONFIRMED = 'confirmed',
     PROCESSING = 'processing',
@@ -98,6 +100,15 @@ export class Order {
 
     @Prop()
     cancelReason: string;
+
+    @Prop()
+    razorpayOrderId: string;
+
+    @Prop()
+    razorpayPaymentId: string;
+
+    @Prop()
+    paymentCapturedAt: Date;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);

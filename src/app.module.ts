@@ -10,12 +10,15 @@ import { OrdersModule } from './orders/orders.module';
 import { LeadsModule } from './leads/leads.module';
 import { StoreConfigModule } from './config/store-config.module';
 import { UploadModule } from './upload/upload.module';
+import { PaymentsModule } from './payments/payments.module';
+import { resolveMongoUri } from './config/database.config';
 @Module({
     imports: [
         ConfigModule.forRoot({
             isGlobal: true,
+            envFilePath: [`.env.${process.env.NODE_ENV || 'development'}`, '.env'],
         }),
-        MongooseModule.forRoot(process.env.MONGODB_URI || 'mongodb://localhost:27017/jewelcore'),
+        MongooseModule.forRoot(resolveMongoUri()),
         TenantsModule,
         AuthModule,
         UsersModule,
@@ -25,6 +28,7 @@ import { UploadModule } from './upload/upload.module';
         LeadsModule,
         StoreConfigModule,
         UploadModule,
+        PaymentsModule,
     ],
 })
 

@@ -126,4 +126,12 @@ export class UpdateStoreConfigDto {
     @IsOptional()
     @IsString()
     currencySymbol?: string;
+
+    @IsOptional()
+    @IsString()
+    razorpayKeyId?: string;
+
+    @IsOptional()
+    @IsString()
+    razorpayKeySecret?: string;
 }
