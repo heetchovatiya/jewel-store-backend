@@ -43,20 +43,12 @@ export class AdminProductsController {
 
     @Get()
     findAll(@Req() req: Request, @Query() query: ProductQueryDto) {
-        return this.productsService.findAll(req.tenantId!, { ...query });
+        return this.productsService.findAll(req.tenantId!, query, { includeInactive: true });
     }
 
     @Get(':id/with-inventory')
-    async getWithInventory(@Req() req: Request, @Param('id') id: string) {
-        const product = await this.productsService.findById(req.tenantId!, id);
-        if (!product) {
-            return { error: 'Product not found' };
-        }
-        const inventory = await this.productsService.getInventory(req.tenantId!, id);
-        return {
-            ...product.toObject(),
-            inventory: inventory || null,
-        };
+    getWithInventory(@Req() req: Request, @Param('id') id: string) {
+        return this.productsService.getProductWithInventoryById(req.tenantId!, id);
     }
 
     @Post()

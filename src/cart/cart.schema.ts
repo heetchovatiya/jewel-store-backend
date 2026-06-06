@@ -3,7 +3,7 @@ import { Document, Types } from 'mongoose';
 
 export type CartDocument = Cart & Document;
 
-@Schema({ timestamps: true })
+@Schema({ _id: true, timestamps: false })
 export class CartItem {
     @Prop({ required: true, type: Types.ObjectId, ref: 'Product' })
     productId: Types.ObjectId;
@@ -19,6 +19,18 @@ export class CartItem {
 
     @Prop({ required: true, min: 1 })
     quantity: number;
+
+    @Prop({ type: Types.ObjectId })
+    variantId: Types.ObjectId;
+
+    @Prop()
+    size: string;
+
+    @Prop()
+    color: string;
+
+    @Prop()
+    sku: string;
 }
 
 export const CartItemSchema = SchemaFactory.createForClass(CartItem);

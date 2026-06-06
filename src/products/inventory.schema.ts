@@ -11,6 +11,10 @@ export class Inventory {
     @Prop({ required: true, type: Types.ObjectId, ref: 'Product', index: true })
     productId: Types.ObjectId;
 
+    /** Set for variant SKUs; null = simple product (single SKU) */
+    @Prop({ type: Types.ObjectId, default: null })
+    variantId: Types.ObjectId | null;
+
     @Prop()
     sku: string;
 
@@ -29,6 +33,10 @@ export class Inventory {
 
 export const InventorySchema = SchemaFactory.createForClass(Inventory);
 
-// Compound index for tenant + product uniqueness
-InventorySchema.index({ tenantId: 1, productId: 1 }, { unique: true });
+// One row per sellable SKU (product-only or product+variant)
+InventorySchema.index(
+    { tenantId: 1, productId: 1, variantId: 1 },
+    { unique: true },
+);
 InventorySchema.index({ tenantId: 1, sku: 1 });
+InventorySchema.index({ tenantId: 1, stock: 1 });

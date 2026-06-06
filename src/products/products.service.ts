@@ -1,20 +1,82 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Readable } from 'stream';
 import csvParser from 'csv-parser';
 import { Product, ProductDocument } from './product.schema';
-import { Inventory, InventoryDocument } from './inventory.schema';
-import { CreateProductDto, UpdateProductDto, UpdateInventoryDto, ProductQueryDto } from './dto/product.dto';
+import { Inventory } from './inventory.schema';
+import { CreateProductDto, UpdateProductDto, UpdateInventoryDto, ProductQueryDto, ProductVariantDto } from './dto/product.dto';
+import { ProductVariant } from './product-variant.schema';
+import { InventoryService } from '../inventory/inventory.service';
 
 @Injectable()
 export class ProductsService {
     constructor(
         @InjectModel(Product.name) private productModel: Model<ProductDocument>,
-        @InjectModel(Inventory.name) private inventoryModel: Model<InventoryDocument>,
+        private readonly inventoryService: InventoryService,
     ) { }
 
-    // Generate slug from title
+    hasVariants(product: { variants?: ProductVariant[] }): boolean {
+        return Array.isArray(product.variants) && product.variants.some(v => v.isActive !== false);
+    }
+
+    private normalizeVariants(
+        variants: ProductVariantDto[] | undefined,
+        basePrice: number,
+        productId?: string,
+    ): ProductVariant[] {
+        if (!variants?.length) return [];
+
+        return variants
+            .filter(v => (v.size?.trim() || v.color?.trim()))
+            .map((v, index) => ({
+                ...(v._id ? { _id: new Types.ObjectId(v._id) } : {}),
+                size: v.size?.trim() || undefined,
+                color: v.color?.trim() || undefined,
+                price: v.price ?? basePrice,
+                sku: v.sku?.trim() || `SKU-${(productId || 'NEW').slice(-6).toUpperCase()}-${index + 1}`,
+                image: v.image?.trim() || undefined,
+                isActive: v.isActive !== false,
+            } as ProductVariant));
+    }
+
+    private deriveOptionLists(variants: ProductVariant[]): { availableSizes: string[]; availableColors: string[] } {
+        const sizes = new Set<string>();
+        const colors = new Set<string>();
+        for (const v of variants) {
+            if (v.isActive === false) continue;
+            if (v.size) sizes.add(v.size);
+            if (v.color) colors.add(v.color);
+        }
+        return {
+            availableSizes: Array.from(sizes),
+            availableColors: Array.from(colors),
+        };
+    }
+
+    getVariant(product: ProductDocument | Product, variantId: string): ProductVariant | null {
+        const variants = product.variants || [];
+        return variants.find(v => (v as any)._id?.toString() === variantId) || null;
+    }
+
+    getVariantPrice(product: Product, variant: ProductVariant): number {
+        return variant.price ?? product.price;
+    }
+
+    private async enrichProduct(tenantId: string, product: ProductDocument | Record<string, unknown>): Promise<any> {
+        const obj = (product as ProductDocument).toObject
+            ? (product as ProductDocument).toObject()
+            : { ...product };
+        const hasVariants = this.hasVariants(obj as Product);
+        return this.inventoryService.attachStockToProduct(
+            tenantId,
+            obj as Product & { variants?: ProductVariant[]; price: number },
+            (p, v) => this.getVariantPrice(p as Product, v),
+            hasVariants,
+            { migrateVariants: true },
+        );
+    }
+
     private generateSlug(title: string): string {
         return title
             .toLowerCase()
@@ -24,48 +86,74 @@ export class ProductsService {
     }
 
     async create(tenantId: string, createProductDto: CreateProductDto): Promise<Product> {
-        const { sku, stock, lowStockThreshold, ...productData } = createProductDto;
+        const { sku, stock, lowStockThreshold, variants, availableSizes, availableColors, ...productData } = createProductDto;
 
-        // Generate slug if not provided
         if (!productData.slug) {
             productData.slug = this.generateSlug(productData.title);
         }
 
+        const normalizedVariants = this.normalizeVariants(variants, productData.price);
+        const optionLists = normalizedVariants.length
+            ? this.deriveOptionLists(normalizedVariants)
+            : { availableSizes: availableSizes || [], availableColors: availableColors || [] };
+
         const product = new this.productModel({
             ...productData,
+            variants: normalizedVariants,
+            availableSizes: availableSizes?.length ? availableSizes : optionLists.availableSizes,
+            availableColors: availableColors?.length ? availableColors : optionLists.availableColors,
             tenantId: new Types.ObjectId(tenantId),
         });
 
         const savedProduct = await product.save();
+        const productId = savedProduct._id.toString();
 
-        // Create inventory record
-        await this.inventoryModel.create({
-            tenantId: new Types.ObjectId(tenantId),
-            productId: savedProduct._id,
-            sku: sku || `SKU-${savedProduct._id.toString().slice(-8).toUpperCase()}`,
-            stock: stock || 0,
+        const inventoryDefaults = {
             lowStockThreshold: lowStockThreshold || 5,
-        });
+            trackInventory: true,
+            allowBackorder: false,
+        };
+
+        if (normalizedVariants.length) {
+            await this.inventoryService.syncVariantInventories(
+                tenantId,
+                productId,
+                normalizedVariants.map((v, i) => ({
+                    _id: (v as any)._id,
+                    sku: v.sku,
+                    stock: variants?.[i]?.stock ?? 0,
+                    isActive: v.isActive,
+                })),
+                inventoryDefaults,
+            );
+        } else {
+            await this.inventoryService.createSimpleProductInventory(tenantId, productId, {
+                sku,
+                stock: stock || 0,
+                ...inventoryDefaults,
+            });
+        }
 
         return savedProduct;
     }
 
-    async findAll(tenantId: string, query: ProductQueryDto = {}): Promise<{ products: Product[]; total: number }> {
+    async findAll(
+        tenantId: string,
+        query: ProductQueryDto = {},
+        options: { includeInactive?: boolean } = {},
+    ): Promise<{ products: Product[]; total: number }> {
         const { category, search, featured, page = 1, limit = 20, sort = '-createdAt' } = query;
 
-        const filter: any = {
+        const filter: Record<string, unknown> = {
             tenantId: new Types.ObjectId(tenantId),
-            isActive: true,
         };
 
-        if (category) {
-            filter.category = category;
+        if (!options.includeInactive) {
+            filter.isActive = true;
         }
 
-        if (featured !== undefined) {
-            filter.isFeatured = featured;
-        }
-
+        if (category) filter.category = category;
+        if (featured !== undefined) filter.isFeatured = featured;
         if (search) {
             filter.$or = [
                 { title: { $regex: search, $options: 'i' } },
@@ -76,26 +164,21 @@ export class ProductsService {
         const skip = (page - 1) * limit;
 
         const [products, total] = await Promise.all([
-            this.productModel
-                .find(filter)
-                .sort(sort)
-                .skip(skip)
-                .limit(limit)
-                .exec(),
+            this.productModel.find(filter).sort(sort).skip(skip).limit(limit).exec(),
             this.productModel.countDocuments(filter),
         ]);
 
         const productsWithInventory = await Promise.all(
             products.map(async (product) => {
-                const inventory = await this.getInventory(tenantId, product._id.toString());
-                return {
-                    ...product.toObject(),
-                    inventory: inventory ? {
-                        stock: inventory.stock,
-                        sku: inventory.sku,
-                        inStock: inventory.stock > 0 || inventory.allowBackorder,
-                    } : { stock: 0, inStock: false },
-                };
+                const obj = product.toObject();
+                const hasVariants = this.hasVariants(obj);
+                return this.inventoryService.attachStockToProduct(
+                    tenantId,
+                    obj,
+                    (p, v) => this.getVariantPrice(p as Product, v),
+                    hasVariants,
+                    { migrateVariants: false },
+                );
             }),
         );
 
@@ -118,31 +201,65 @@ export class ProductsService {
     }
 
     async update(tenantId: string, id: string, updateDto: UpdateProductDto): Promise<Product | null> {
+        const existing = await this.findById(tenantId, id);
+        if (!existing) return null;
+
+        const { variants, availableSizes, availableColors, ...rest } = updateDto;
+        const updatePayload: Record<string, unknown> = { ...rest };
+
+        if (variants !== undefined) {
+            const basePrice = updateDto.price ?? existing.price;
+            const normalizedVariants = this.normalizeVariants(variants, basePrice, id);
+            const optionLists = this.deriveOptionLists(normalizedVariants);
+            updatePayload.variants = normalizedVariants;
+            updatePayload.availableSizes = availableSizes?.length ? availableSizes : optionLists.availableSizes;
+            updatePayload.availableColors = availableColors?.length ? availableColors : optionLists.availableColors;
+
+            const existingInv = await this.inventoryService.getProductInventory(tenantId, id);
+
+            await this.inventoryService.syncVariantInventories(
+                tenantId,
+                id,
+                normalizedVariants.map((v, i) => ({
+                    _id: (v as any)._id,
+                    sku: v.sku,
+                    stock: variants[i]?.stock,
+                    isActive: v.isActive,
+                })),
+                {
+                    lowStockThreshold: existingInv?.lowStockThreshold ?? 5,
+                    trackInventory: existingInv?.trackInventory ?? true,
+                    allowBackorder: existingInv?.allowBackorder ?? false,
+                },
+            );
+        } else if (availableSizes !== undefined || availableColors !== undefined) {
+            if (availableSizes !== undefined) updatePayload.availableSizes = availableSizes;
+            if (availableColors !== undefined) updatePayload.availableColors = availableColors;
+        }
+
         return this.productModel.findOneAndUpdate(
             { _id: new Types.ObjectId(id), tenantId: new Types.ObjectId(tenantId) },
-            updateDto,
-            { new: true }
+            updatePayload,
+            { new: true },
         ).exec();
     }
 
     async delete(tenantId: string, id: string): Promise<void> {
         await this.productModel.findOneAndUpdate(
             { _id: new Types.ObjectId(id), tenantId: new Types.ObjectId(tenantId) },
-            { isActive: false }
+            { isActive: false },
         ).exec();
     }
 
     async getCategories(tenantId: string): Promise<string[]> {
-        const categories = await this.productModel.distinct('category', {
+        return this.productModel.distinct('category', {
             tenantId: new Types.ObjectId(tenantId),
             isActive: true,
         });
-        return categories;
     }
 
-    // Get featured products
     async getFeaturedProducts(tenantId: string, limit: number = 8): Promise<Product[]> {
-        return this.productModel
+        const products = await this.productModel
             .find({
                 tenantId: new Types.ObjectId(tenantId),
                 isActive: true,
@@ -151,9 +268,12 @@ export class ProductsService {
             .sort('-createdAt')
             .limit(limit)
             .exec();
+
+        return Promise.all(
+            products.map(p => this.enrichProduct(tenantId, p)),
+        ) as Promise<Product[]>;
     }
 
-    // Toggle featured status
     async toggleFeatured(tenantId: string, id: string): Promise<Product | null> {
         const product = await this.findById(tenantId, id);
         if (!product) return null;
@@ -161,51 +281,30 @@ export class ProductsService {
         return this.productModel.findOneAndUpdate(
             { _id: new Types.ObjectId(id), tenantId: new Types.ObjectId(tenantId) },
             { isFeatured: !product.isFeatured },
-            { new: true }
+            { new: true },
         ).exec();
     }
 
-    // Inventory methods
     async getInventory(tenantId: string, productId: string): Promise<Inventory | null> {
-        return this.inventoryModel.findOne({
-            tenantId: new Types.ObjectId(tenantId),
-            productId: new Types.ObjectId(productId),
-        }).exec();
+        return this.inventoryService.getProductInventory(tenantId, productId);
     }
 
     async updateInventory(tenantId: string, productId: string, updateDto: UpdateInventoryDto): Promise<Inventory | null> {
-        return this.inventoryModel.findOneAndUpdate(
-            { tenantId: new Types.ObjectId(tenantId), productId: new Types.ObjectId(productId) },
-            updateDto,
-            { new: true }
-        ).exec();
+        return this.inventoryService.updateProductInventory(tenantId, productId, updateDto);
     }
 
     async getLowStockProducts(tenantId: string): Promise<any[]> {
-        return this.inventoryModel.aggregate([
-            { $match: { tenantId: new Types.ObjectId(tenantId) } },
-            { $match: { $expr: { $lte: ['$stock', '$lowStockThreshold'] } } },
-            { $lookup: { from: 'products', localField: 'productId', foreignField: '_id', as: 'product' } },
-            { $unwind: '$product' },
-            { $match: { 'product.isActive': true } },
-        ]).exec();
+        return this.inventoryService.getLowStockProducts(tenantId);
     }
 
     async getAllInventory(tenantId: string): Promise<any[]> {
-        return this.inventoryModel.aggregate([
-            { $match: { tenantId: new Types.ObjectId(tenantId) } },
-            { $lookup: { from: 'products', localField: 'productId', foreignField: '_id', as: 'product' } },
-            { $unwind: '$product' },
-            { $match: { 'product.isActive': true } },
-        ]).exec();
+        return this.inventoryService.getAllInventory(tenantId);
     }
 
-    // Bulk upload from CSV
     async bulkUpload(tenantId: string, fileBuffer: Buffer): Promise<{ success: number; failed: number; errors: string[] }> {
         return new Promise((resolve) => {
             const results: CreateProductDto[] = [];
             const errors: string[] = [];
-
             const stream = Readable.from(fileBuffer.toString());
 
             stream
@@ -237,7 +336,6 @@ export class ProductsService {
                 })
                 .on('end', async () => {
                     let success = 0;
-
                     for (const productData of results) {
                         try {
                             await this.create(tenantId, productData);
@@ -246,11 +344,10 @@ export class ProductsService {
                             errors.push(`Failed to create "${productData.title}": ${e.message}`);
                         }
                     }
-
                     resolve({
                         success,
                         failed: results.length - success + errors.length,
-                        errors: errors.slice(0, 10), // Return first 10 errors
+                        errors: errors.slice(0, 10),
                     });
                 })
                 .on('error', (e) => {
@@ -260,20 +357,15 @@ export class ProductsService {
         });
     }
 
-    // Get product with inventory
     async getProductWithInventory(tenantId: string, slug: string): Promise<any> {
         const product = await this.findBySlug(tenantId, slug);
         if (!product) return null;
+        return this.enrichProduct(tenantId, product);
+    }
 
-        const inventory = await this.getInventory(tenantId, product._id.toString());
-
-        return {
-            ...product.toObject(),
-            inventory: inventory ? {
-                stock: inventory.stock,
-                sku: inventory.sku,
-                inStock: inventory.stock > 0 || inventory.allowBackorder,
-            } : null,
-        };
+    async getProductWithInventoryById(tenantId: string, id: string): Promise<any> {
+        const product = await this.findById(tenantId, id);
+        if (!product) return null;
+        return this.enrichProduct(tenantId, product);
     }
 }

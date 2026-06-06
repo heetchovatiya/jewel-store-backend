@@ -1,5 +1,41 @@
-import { IsString, IsNumber, IsOptional, IsBoolean, IsArray, Min } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsBoolean, IsArray, IsObject, Min, ValidateNested } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
+
+export class ProductVariantDto {
+    @IsOptional()
+    @IsString()
+    _id?: string;
+
+    @IsOptional()
+    @IsString()
+    size?: string;
+
+    @IsOptional()
+    @IsString()
+    color?: string;
+
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    price?: number;
+
+    @IsOptional()
+    @IsString()
+    sku?: string;
+
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    stock?: number;
+
+    @IsOptional()
+    @IsString()
+    image?: string;
+
+    @IsOptional()
+    @IsBoolean()
+    isActive?: boolean;
+}
 
 export class CreateProductDto {
     @IsString()
@@ -69,6 +105,26 @@ export class CreateProductDto {
     @IsNumber()
     @Min(0)
     lowStockThreshold?: number;
+
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => ProductVariantDto)
+    variants?: ProductVariantDto[];
+
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    availableSizes?: string[];
+
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    availableColors?: string[];
+
+    @IsOptional()
+    @IsObject()
+    colorImages?: Record<string, string[]>;
 }
 
 export class UpdateProductDto {
@@ -123,6 +179,26 @@ export class UpdateProductDto {
     @IsArray()
     @IsString({ each: true })
     tags?: string[];
+
+    @IsOptional()
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => ProductVariantDto)
+    variants?: ProductVariantDto[];
+
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    availableSizes?: string[];
+
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    availableColors?: string[];
+
+    @IsOptional()
+    @IsObject()
+    colorImages?: Record<string, string[]>;
 }
 
 export class UpdateInventoryDto {

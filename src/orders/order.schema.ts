@@ -33,6 +33,15 @@ export class OrderItem {
 
     @Prop()
     sku: string;
+
+    @Prop({ type: Types.ObjectId })
+    variantId: Types.ObjectId;
+
+    @Prop()
+    size: string;
+
+    @Prop()
+    color: string;
 }
 
 export const OrderItemSchema = SchemaFactory.createForClass(OrderItem);

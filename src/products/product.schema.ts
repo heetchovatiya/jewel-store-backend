@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
+import { ProductVariant, ProductVariantSchema } from './product-variant.schema';
 
 export type ProductDocument = Product & Document;
 
@@ -46,6 +47,20 @@ export class Product {
 
     @Prop({ type: [String], default: [] })
     tags: string[];
+
+    /** Size/color combinations — rings, bangles, etc. */
+    @Prop({ type: [ProductVariantSchema], default: [] })
+    variants: ProductVariant[];
+
+    @Prop({ type: [String], default: [] })
+    availableSizes: string[];
+
+    @Prop({ type: [String], default: [] })
+    availableColors: string[];
+
+    /** Gallery images keyed by color name (e.g. Gold, Rose Gold) */
+    @Prop({ type: Object, default: {} })
+    colorImages: Record<string, string[]>;
 }
 
 export const ProductSchema = SchemaFactory.createForClass(Product);

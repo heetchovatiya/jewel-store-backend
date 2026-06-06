@@ -4,9 +4,8 @@ import { Model, Types } from 'mongoose';
 import * as crypto from 'crypto';
 import Razorpay from 'razorpay';
 import { CartService } from '../cart/cart.service';
-import { ProductsService } from '../products/products.service';
+import { CheckoutService } from '../checkout/checkout.service';
 import { StoreConfigService } from '../config/store-config.service';
-import { Inventory, InventoryDocument } from '../products/inventory.schema';
 import { Order, OrderDocument, OrderStatus } from '../orders/order.schema';
 import { ShippingAddressDto } from '../orders/dto/order.dto';
 import { UsersService } from '../users/users.service';
@@ -17,9 +16,8 @@ export class PaymentsService {
 
     constructor(
         @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
-        @InjectModel(Inventory.name) private readonly inventoryModel: Model<InventoryDocument>,
         private readonly cartService: CartService,
-        private readonly productsService: ProductsService,
+        private readonly checkoutService: CheckoutService,
         private readonly storeConfigService: StoreConfigService,
         private readonly usersService: UsersService,
     ) { }
@@ -40,50 +38,6 @@ export class PaymentsService {
         }
 
         return { keyId, keySecret };
-    }
-
-    private async calculateOrderFromCart(tenantId: string, userId: string) {
-        const cart = await this.cartService.getCart(tenantId, userId);
-        if (cart.items.length === 0) {
-            throw new BadRequestException('Cart is empty');
-        }
-
-        const orderItems: Order['items'] = [];
-        let subtotal = 0;
-
-        for (const cartItem of cart.items) {
-            const product = await this.productsService.findById(tenantId, cartItem.productId.toString());
-            if (!product || !product.isActive) {
-                throw new BadRequestException(`Product unavailable: ${cartItem.title}`);
-            }
-
-            const inventory = await this.productsService.getInventory(tenantId, cartItem.productId.toString());
-            if (inventory && inventory.trackInventory) {
-                if (cartItem.quantity > inventory.stock && !inventory.allowBackorder) {
-                    throw new BadRequestException(
-                        `Not enough stock for "${product.title}". Available: ${inventory.stock}`,
-                    );
-                }
-            }
-
-            const lineTotal = product.price * cartItem.quantity;
-            subtotal += lineTotal;
-
-            orderItems.push({
-                productId: new Types.ObjectId(cartItem.productId.toString()),
-                title: product.title,
-                price: product.price,
-                image: product.images?.[0] || cartItem.image,
-                quantity: cartItem.quantity,
-                sku: inventory?.sku || '',
-            });
-        }
-
-        const tax = 0;
-        const shippingCost = 0;
-        const total = subtotal + tax + shippingCost;
-
-        return { orderItems, subtotal, tax, shippingCost, total };
     }
 
     private async validateShippingAddressByPincode(shippingAddress: ShippingAddressDto) {
@@ -122,7 +76,8 @@ export class PaymentsService {
     async initiatePayment(tenantId: string, userId: string, shippingAddress: ShippingAddressDto) {
         await this.validateShippingAddressByPincode(shippingAddress);
         const { keyId, keySecret } = await this.getRazorpayCredentials(tenantId);
-        const { orderItems, subtotal, tax, shippingCost, total } = await this.calculateOrderFromCart(tenantId, userId);
+        const { orderItems, subtotal, tax, shippingCost, total } =
+            await this.checkoutService.buildFromCart(tenantId, userId);
         const amountPaise = Math.round(total * 100);
         const orderNumber = this.generateOrderNumber();
 
@@ -242,30 +197,7 @@ export class PaymentsService {
             return;
         }
 
-        for (const item of order.items) {
-            const inventory = await this.inventoryModel.findOne({
-                tenantId: new Types.ObjectId(tenantId),
-                productId: item.productId,
-            }).exec();
-
-            if (!inventory || !inventory.trackInventory || inventory.allowBackorder) {
-                continue;
-            }
-
-            const updated = await this.inventoryModel.findOneAndUpdate(
-                {
-                    tenantId: new Types.ObjectId(tenantId),
-                    productId: item.productId,
-                    stock: { $gte: item.quantity },
-                },
-                { $inc: { stock: -item.quantity } },
-                { new: true },
-            ).exec();
-
-            if (!updated) {
-                throw new BadRequestException(`Insufficient stock during payment capture for ${item.title}`);
-            }
-        }
+        await this.checkoutService.fulfillInventory(tenantId, order.items);
 
         await this.orderModel.findOneAndUpdate(
             {

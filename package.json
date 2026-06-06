@@ -8,7 +8,9 @@
     "start": "node dist/main.js",
     "start:dev": "ts-node src/main.ts",
     "start:watch": "nodemon --exec ts-node src/main.ts",
-    "migrate:priyincigold-dbs": "bash ./scripts/migrate_to_priyincigold_dbs.sh"
+    "migrate:priyincigold-dbs": "bash ./scripts/migrate_to_priyincigold_dbs.sh",
+    "test": "jest",
+    "test:watch": "jest --watch"
   },
   "keywords": [
     "ecommerce",
@@ -49,6 +51,9 @@
     "@types/multer": "^1.4.11",
     "@types/node": "^20.0.0",
     "@types/passport-jwt": "^4.0.0",
+    "@types/jest": "^29.5.14",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
     "nodemon": "^3.1.11",
     "ts-node": "^10.9.0",
     "typescript": "^5.0.0"

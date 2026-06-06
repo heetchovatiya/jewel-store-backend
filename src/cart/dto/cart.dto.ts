@@ -7,10 +7,18 @@ export class AddToCartDto {
     @IsNumber()
     @Min(1)
     quantity: number;
+
+    @IsOptional()
+    @IsString()
+    variantId?: string;
 }
 
 export class UpdateCartItemDto {
     @IsNumber()
     @Min(0)
     quantity: number;
+
+    @IsOptional()
+    @IsString()
+    variantId?: string;
 }
