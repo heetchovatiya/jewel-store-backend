@@ -9,7 +9,4 @@ module.exports = {
     collectCoverageFrom: ['**/*.(t|j)s'],
     coverageDirectory: '../coverage',
     testEnvironment: 'node',
-    moduleNameMapper: {
-        '^@shared/(.*)$': '<rootDir>/../../shared/types/$1',
-    },
 };
