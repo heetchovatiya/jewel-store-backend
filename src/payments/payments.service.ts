@@ -6,7 +6,7 @@ import Razorpay from 'razorpay';
 import { CartService } from '../cart/cart.service';
 import { CheckoutService } from '../checkout/checkout.service';
 import { StoreConfigService } from '../config/store-config.service';
-import { Order, OrderDocument, OrderStatus } from '../orders/order.schema';
+import { Order, OrderDocument, OrderStatus, PaymentMethod } from '../orders/order.schema';
 import { ShippingAddressDto } from '../orders/dto/order.dto';
 import { UsersService } from '../users/users.service';
 
@@ -99,6 +99,7 @@ export class PaymentsService {
             shippingCost,
             total,
             status: OrderStatus.PAYMENT_PENDING,
+            paymentMethod: PaymentMethod.RAZORPAY,
             shippingAddress,
             razorpayOrderId: razorpayOrder.id,
         });
@@ -111,6 +112,47 @@ export class PaymentsService {
             razorpayOrderId: razorpayOrder.id,
             amount: amountPaise,
             keyId,
+        };
+    }
+
+    async placeCodOrder(tenantId: string, userId: string, shippingAddress: ShippingAddressDto) {
+        await this.validateShippingAddressByPincode(shippingAddress);
+        const { orderItems, subtotal, tax, shippingCost, total } =
+            await this.checkoutService.buildFromCart(tenantId, userId);
+        const orderNumber = this.generateOrderNumber();
+
+        const order = new this.orderModel({
+            tenantId: new Types.ObjectId(tenantId),
+            userId: new Types.ObjectId(userId),
+            orderNumber,
+            items: orderItems,
+            subtotal,
+            tax,
+            shippingCost,
+            total,
+            status: OrderStatus.PENDING,
+            paymentMethod: PaymentMethod.COD,
+            shippingAddress,
+        });
+
+        const savedOrder = await order.save();
+
+        await this.checkoutService.fulfillInventory(tenantId, orderItems);
+        await this.cartService.clearCart(tenantId, userId);
+        await this.usersService.upsertAddress(tenantId, userId, {
+            fullName: order.shippingAddress.fullName,
+            phone: order.shippingAddress.phone,
+            addressLine1: order.shippingAddress.addressLine1,
+            addressLine2: order.shippingAddress.addressLine2,
+            city: order.shippingAddress.city,
+            state: order.shippingAddress.state,
+            pincode: order.shippingAddress.pincode,
+        });
+
+        return {
+            orderId: savedOrder._id.toString(),
+            orderNumber: savedOrder.orderNumber,
+            status: savedOrder.status,
         };
     }
 

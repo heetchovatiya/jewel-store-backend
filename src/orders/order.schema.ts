@@ -14,6 +14,11 @@ export enum OrderStatus {
     CANCELLED = 'cancelled',
 }
 
+export enum PaymentMethod {
+    RAZORPAY = 'razorpay',
+    COD = 'cod',
+}
+
 @Schema({ timestamps: true })
 export class OrderItem {
     @Prop({ required: true, type: Types.ObjectId, ref: 'Product' })
@@ -109,6 +114,9 @@ export class Order {
 
     @Prop()
     cancelReason: string;
+
+    @Prop({ type: String, enum: PaymentMethod, default: PaymentMethod.RAZORPAY })
+    paymentMethod: PaymentMethod;
 
     @Prop()
     razorpayOrderId: string;

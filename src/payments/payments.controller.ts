@@ -18,6 +18,16 @@ export class PaymentsController {
         );
     }
 
+    @Post('cod')
+    @UseGuards(JwtAuthGuard)
+    placeCodOrder(@Req() req: Request, @Body() dto: InitiatePaymentDto) {
+        return this.paymentsService.placeCodOrder(
+            req.tenantId!,
+            (req as any).user.userId,
+            dto.shippingAddress,
+        );
+    }
+
     @Post('verify')
     @UseGuards(JwtAuthGuard)
     verifyPayment(@Req() req: Request, @Body() dto: VerifyPaymentDto) {
