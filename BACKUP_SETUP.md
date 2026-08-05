@@ -36,8 +36,10 @@ s3cmd --configure
 
 When prompted:
 
-- Access Key / Secret -> DigitalOcean Spaces Keys
-- Endpoint -> e.g. `sgp1.digitaloceanspaces.com`
+- Access Key / Secret -> Cloudflare R2 API token (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`)
+- Endpoint -> e.g. `<ACCOUNT_ID>.r2.cloudflarestorage.com`
+- Use HTTPS -> Yes
+- Use path-style -> Yes (recommended for R2)
 
 ## 3) Required Backup Environment Variables
 
@@ -45,8 +47,8 @@ Set these on the server (or in a protected env file):
 
 ```bash
 BACKUP_MONGODB_URI="mongodb+srv://user:pass@cluster.mongodb.net/jewel_prod?retryWrites=true&w=majority"
-BACKUP_SPACE_NAME="your-space-name"
-BACKUP_S3_ENDPOINT="sgp1.digitaloceanspaces.com"
+BACKUP_SPACE_NAME="your-r2-bucket-name"
+BACKUP_S3_ENDPOINT="<ACCOUNT_ID>.r2.cloudflarestorage.com"
 BACKUP_TMP_DIR="./tmp_backups"
 ```
 

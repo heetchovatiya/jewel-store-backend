@@ -1,12 +1,21 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import {
+    S3Client,
+    PutObjectCommand,
+    DeleteObjectCommand,
+    GetObjectCommand,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export interface PresignedUrlResponse {
     uploadUrl: string;
     publicUrl: string;
     key: string;
+    /** Must be sent as Cache-Control header on the client PUT (signed). */
+    cacheControl: string;
+    /** Must be sent as Content-Type header on the client PUT (signed). */
+    contentType: string;
 }
 
 export interface UploadResponse {
@@ -14,34 +23,64 @@ export interface UploadResponse {
     key: string;
 }
 
+/** Default expiry for private object download URLs (15 minutes). */
+const PRIVATE_URL_EXPIRES_IN = 900;
+/** Presigned upload URL lifetime (10 minutes). */
+const UPLOAD_URL_EXPIRES_IN = 600;
+const DEFAULT_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
 @Injectable()
 export class UploadService {
-    private s3Client: S3Client;
-    private bucket: string;
-    private cdnUrl: string;
+    private readonly logger = new Logger(UploadService.name);
+    private readonly s3Client: S3Client;
+    private readonly bucket: string;
+    private readonly publicDomain: string;
+    private readonly cacheControl: string;
 
     constructor(private configService: ConfigService) {
-        const region = this.configService.get<string>('DO_SPACES_REGION') || 'sgp1';
-        const endpoint = this.configService.get<string>('DO_SPACES_ENDPOINT') || `https://${region}.digitaloceanspaces.com`;
+        // Prefer R2_* names; fall back to AWS_*/S3_* for compatibility
+        const endpoint =
+            this.configService.get<string>('R2_ENDPOINT') ||
+            this.configService.get<string>('S3_ENDPOINT');
+        const accessKeyId =
+            this.configService.get<string>('R2_ACCESS_KEY_ID') ||
+            this.configService.get<string>('AWS_ACCESS_KEY_ID');
+        const secretAccessKey =
+            this.configService.get<string>('R2_SECRET_ACCESS_KEY') ||
+            this.configService.get<string>('AWS_SECRET_ACCESS_KEY');
 
+        if (!endpoint || !accessKeyId || !secretAccessKey) {
+            this.logger.warn(
+                'R2 is not fully configured. Set R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_ENDPOINT.',
+            );
+        }
+
+        // Cloudflare R2: region "auto"; forcePathStyle required for SigV4
         this.s3Client = new S3Client({
-            region,
-            endpoint,
+            region: 'auto',
+            endpoint: endpoint || undefined,
             credentials: {
-                accessKeyId: this.configService.get<string>('DO_SPACES_KEY') || '',
-                secretAccessKey: this.configService.get<string>('DO_SPACES_SECRET') || '',
+                accessKeyId: accessKeyId || '',
+                secretAccessKey: secretAccessKey || '',
             },
-            forcePathStyle: false,
+            forcePathStyle: true,
         });
 
-        this.bucket = this.configService.get<string>('DO_SPACES_BUCKET') || 'jewelstore';
-        this.cdnUrl = this.configService.get<string>('DO_SPACES_CDN_URL') ||
-            `https://${this.bucket}.${region}.digitaloceanspaces.com`;
+        this.bucket =
+            this.configService.get<string>('R2_BUCKET_NAME') ||
+            this.configService.get<string>('S3_BUCKET_NAME') ||
+            '';
+
+        const rawDomain =
+            this.configService.get<string>('R2_PUBLIC_DOMAIN') ||
+            this.configService.get<string>('S3_CUSTOM_DOMAIN') ||
+            '';
+        this.publicDomain = rawDomain.replace(/\/$/, '');
+
+        this.cacheControl =
+            this.configService.get<string>('R2_CACHE_CONTROL') || DEFAULT_CACHE_CONTROL;
     }
 
-    /**
-     * Generate a unique key for a file
-     */
     private generateKey(folder: string, filename: string): string {
         const timestamp = Date.now();
         const randomId = Math.random().toString(36).substring(2, 8);
@@ -52,23 +91,28 @@ export class UploadService {
         return `${folder}/${timestamp}-${randomId}-${sanitizedFilename}`;
     }
 
-    /**
-     * Extract the key from a public URL
-     */
     private extractKeyFromUrl(publicUrl: string): string | null {
         try {
-            // URL format: https://bucket.region.digitaloceanspaces.com/folder/filename
             const url = new URL(publicUrl);
-            // Remove leading slash
-            return url.pathname.substring(1);
+            return url.pathname.replace(/^\//, '');
         } catch {
             return null;
         }
     }
 
+    /** Public asset URL via Hostinger/Cloudflare CNAME — never the raw R2 API endpoint. */
+    private buildPublicUrl(key: string): string {
+        if (!this.publicDomain) {
+            this.logger.warn('R2_PUBLIC_DOMAIN is not set; public URLs may be incorrect');
+            return key;
+        }
+        return `${this.publicDomain}/${key}`;
+    }
+
     /**
-     * Upload a file directly to DO Spaces (proxied through backend)
-     * This avoids CORS issues by having the backend upload directly
+     * Server-side PutObject fallback (counts as Class A on R2 + uses Droplet bandwidth).
+     * Prefer getPresignedUploadUrl for admin media so the browser PUTs directly to R2.
+     * Never uses ListObjects — product metadata lives in MongoDB.
      */
     async uploadFile(
         folder: string,
@@ -78,52 +122,51 @@ export class UploadService {
     ): Promise<UploadResponse> {
         const key = this.generateKey(folder, filename);
 
-        const command = new PutObjectCommand({
-            Bucket: this.bucket,
-            Key: key,
-            ContentType: contentType,
-            Body: buffer,
-            ACL: 'public-read',
-        });
-
-        await this.s3Client.send(command);
-
-        const publicUrl = `${this.cdnUrl}/${key}`;
+        await this.s3Client.send(
+            new PutObjectCommand({
+                Bucket: this.bucket,
+                Key: key,
+                ContentType: contentType,
+                Body: buffer,
+                CacheControl: this.cacheControl,
+            }),
+        );
 
         return {
-            publicUrl,
+            publicUrl: this.buildPublicUrl(key),
             key,
         };
     }
 
     /**
-     * Delete a file from DO Spaces
+     * Delete by CDN URL pathname (Class A). No ListObjects.
      */
     async deleteFile(publicUrl: string): Promise<boolean> {
         const key = this.extractKeyFromUrl(publicUrl);
         if (!key) {
-            console.warn('Could not extract key from URL:', publicUrl);
+            this.logger.warn(`Could not extract key from URL: ${publicUrl}`);
             return false;
         }
 
         try {
-            const command = new DeleteObjectCommand({
-                Bucket: this.bucket,
-                Key: key,
-            });
-
-            await this.s3Client.send(command);
-            console.log('Deleted file from Spaces:', key);
+            await this.s3Client.send(
+                new DeleteObjectCommand({
+                    Bucket: this.bucket,
+                    Key: key,
+                }),
+            );
+            this.logger.log(`Deleted object from R2: ${key}`);
             return true;
         } catch (error) {
-            console.error('Failed to delete file from Spaces:', error);
+            this.logger.error(`Failed to delete object from R2: ${key}`, error);
             return false;
         }
     }
 
     /**
-     * Generate a presigned URL for uploading a file to DO Spaces
-     * Note: This may have CORS issues with some S3-compatible services
+     * Presigned PUT for direct browser → R2 upload (preferred path).
+     * Client must send the same Content-Type and Cache-Control headers.
+     * Single PutObject only — keep files under ~200MB (no multipart).
      */
     async getPresignedUploadUrl(
         folder: string,
@@ -136,18 +179,31 @@ export class UploadService {
             Bucket: this.bucket,
             Key: key,
             ContentType: contentType,
+            CacheControl: this.cacheControl,
         });
 
         const uploadUrl = await getSignedUrl(this.s3Client, command, {
-            expiresIn: 600,
+            expiresIn: UPLOAD_URL_EXPIRES_IN,
         });
-
-        const publicUrl = `${this.cdnUrl}/${key}`;
 
         return {
             uploadUrl,
-            publicUrl,
+            publicUrl: this.buildPublicUrl(key),
             key,
+            cacheControl: this.cacheControl,
+            contentType,
         };
+    }
+
+    /**
+     * Presigned GET for private objects only (Class B). Public media should use R2_PUBLIC_DOMAIN CDN.
+     */
+    async getPresignedDownloadUrl(key: string, expiresIn = PRIVATE_URL_EXPIRES_IN): Promise<string> {
+        const command = new GetObjectCommand({
+            Bucket: this.bucket,
+            Key: key,
+        });
+
+        return getSignedUrl(this.s3Client, command, { expiresIn });
     }
 }

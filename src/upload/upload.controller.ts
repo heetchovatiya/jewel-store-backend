@@ -1,9 +1,22 @@
-import { Controller, Post, Delete, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import {
+    Controller,
+    Post,
+    Delete,
+    Body,
+    UseGuards,
+    UseInterceptors,
+    UploadedFile,
+    BadRequestException,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { IsString, IsNotEmpty } from 'class-validator';
 import { UploadService, PresignedUrlResponse, UploadResponse } from './upload.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
+
+const VALID_FOLDERS = ['banners', 'products', 'logos', 'about', 'categories'] as const;
+/** Keep under 200MB to avoid multipart Class A amplification; app limit is tighter. */
+const MAX_PROXY_BYTES = 20 * 1024 * 1024;
 
 class GetPresignedUrlDto {
     @IsString()
@@ -30,25 +43,47 @@ class DeleteFileDto {
 export class UploadController {
     constructor(private readonly uploadService: UploadService) { }
 
+    private assertFolder(folder: string) {
+        if (!folder || !(VALID_FOLDERS as readonly string[]).includes(folder)) {
+            throw new BadRequestException(`Invalid folder. Must be one of: ${VALID_FOLDERS.join(', ')}`);
+        }
+    }
+
     /**
-     * Upload a file directly (proxied through backend)
-     * This avoids CORS issues with direct browser-to-S3 uploads
+     * Preferred: issue a short-lived presigned PUT URL so the browser uploads
+     * directly to R2 (Class A on R2 only — no Droplet bandwidth / body proxy).
+     */
+    @Post('presigned-url')
+    async getPresignedUrl(@Body() dto: GetPresignedUrlDto): Promise<PresignedUrlResponse> {
+        this.assertFolder(dto.folder);
+        return this.uploadService.getPresignedUploadUrl(
+            dto.folder,
+            dto.filename,
+            dto.contentType,
+        );
+    }
+
+    /**
+     * Fallback: proxy upload through the Droplet (still sets Cache-Control).
+     * Prefer POST /presigned-url for normal admin media.
      */
     @Post('file')
     @UseInterceptors(FileInterceptor('file', {
-        limits: {
-            fileSize: 20 * 1024 * 1024, // 20MB limit
-        },
+        limits: { fileSize: MAX_PROXY_BYTES },
         fileFilter: (req, file, callback) => {
             const allowedMimes = [
                 'image/jpeg', 'image/png', 'image/webp', 'image/gif',
-                'video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo'
+                'video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo',
             ];
             if (allowedMimes.includes(file.mimetype)) {
                 callback(null, true);
             } else {
-                console.error(`Rejected file with MIME type: ${file.mimetype}`);
-                callback(new BadRequestException(`File type not allowed. Received: ${file.mimetype}. Allowed: images (JPEG, PNG, WebP, GIF) and videos (MP4, WebM, MOV, AVI)`), false);
+                callback(
+                    new BadRequestException(
+                        `File type not allowed. Received: ${file.mimetype}. Allowed: images (JPEG, PNG, WebP, GIF) and videos (MP4, WebM, MOV, AVI)`,
+                    ),
+                    false,
+                );
             }
         },
     }))
@@ -59,11 +94,7 @@ export class UploadController {
         if (!file) {
             throw new BadRequestException('No file provided');
         }
-
-        const validFolders = ['banners', 'products', 'logos', 'about', 'categories'];
-        if (!folder || !validFolders.includes(folder)) {
-            throw new BadRequestException(`Invalid folder. Must be one of: ${validFolders.join(', ')}`);
-        }
+        this.assertFolder(folder);
 
         return this.uploadService.uploadFile(
             folder,
@@ -73,9 +104,6 @@ export class UploadController {
         );
     }
 
-    /**
-     * Delete a file from DO Spaces
-     */
     @Delete('file')
     async deleteFile(@Body() dto: DeleteFileDto): Promise<{ success: boolean }> {
         const success = await this.uploadService.deleteFile(dto.url);
@@ -83,16 +111,17 @@ export class UploadController {
     }
 
     /**
-     * Generate a presigned URL for file upload (legacy, may have CORS issues)
+     * Short-lived (15m) GET URL for private objects only.
+     * Public shop media should be read from R2_PUBLIC_DOMAIN (CDN cache → near-zero Class B).
      */
-    @Post('presigned-url')
-    async getPresignedUrl(
-        @Body() dto: GetPresignedUrlDto,
-    ): Promise<PresignedUrlResponse> {
-        return this.uploadService.getPresignedUploadUrl(
-            dto.folder,
-            dto.filename,
-            dto.contentType,
-        );
+    @Post('presigned-download')
+    async getPresignedDownload(
+        @Body() body: { key: string },
+    ): Promise<{ downloadUrl: string }> {
+        if (!body?.key?.trim()) {
+            throw new BadRequestException('key is required');
+        }
+        const downloadUrl = await this.uploadService.getPresignedDownloadUrl(body.key.trim());
+        return { downloadUrl };
     }
 }
