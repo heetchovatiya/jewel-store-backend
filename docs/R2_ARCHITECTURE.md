@@ -8,8 +8,9 @@
 ## Request flow
 1. Admin UI asks Droplet for `POST /admin/upload/presigned-url`
 2. Browser `PUT`s the file **directly to R2** (1 Class A) with `Cache-Control: public, max-age=31536000, immutable`
-3. App stores `publicUrl` (`https://cdn.yourdomain.com/...`) on the product/config document in MongoDB
-4. Shoppers load images from `R2_PUBLIC_DOMAIN` (Hostinger CNAME → R2). Edge + browser cache → near-zero Class B after first hit
+3. App stores the object **key** only in MongoDB (`products/…`, `banners/…`, etc.)
+4. API responses expand keys → `CDN_BASE_URL` / `R2_PUBLIC_DOMAIN` full URLs
+5. Shoppers load images from the CDN. Edge + browser cache → near-zero Class B after first hit
 
 ## Env (backend)
 ```bash
@@ -17,6 +18,7 @@ R2_ACCESS_KEY_ID=...
 R2_SECRET_ACCESS_KEY=...
 R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
 R2_BUCKET_NAME=app-production-bucket
+CDN_BASE_URL=https://cdn.priyancigold.com
 R2_PUBLIC_DOMAIN=https://cdn.priyancigold.com
 R2_CACHE_CONTROL=public, max-age=31536000, immutable
 ```
@@ -26,6 +28,13 @@ R2_CACHE_CONTROL=public, max-age=31536000, immutable
 NEXT_PUBLIC_CDN_URL=https://cdn.priyancigold.com
 ```
 
+## Migrate existing full URLs → keys
+```bash
+npm run migrate:media-keys          # dry-run
+npm run migrate:media-keys:commit   # write
+```
+
+Collections: `products`, `storeconfigs`, `carts`, `orders`.
 ## R2 CORS (required for direct browser PUT)
 In Cloudflare Dashboard → R2 → bucket → Settings → CORS:
 
@@ -50,10 +59,10 @@ If CORS is missing, the frontend falls back to `POST /admin/upload/file` (proxy)
 ## Rules we follow in code
 | Rule | Implementation |
 |------|----------------|
-| No ListObjects | Keys/URLs stored in MongoDB product/config docs |
+| No ListObjects | Object **keys** stored in MongoDB; URLs built at read time |
 | Single PutObject | Files capped at 20MB (≪ 200MB multipart threshold) |
 | Cache-Control on write | Set on PutObject + required on signed PUT |
-| Public reads via CNAME | `R2_PUBLIC_DOMAIN` / `NEXT_PUBLIC_CDN_URL` |
+| Public reads via CNAME | `CDN_BASE_URL` / `NEXT_PUBLIC_CDN_URL` |
 | Private reads | `POST /admin/upload/presigned-download` (15 min) only when needed |
 
 ## What NOT to do

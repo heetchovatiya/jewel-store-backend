@@ -8,6 +8,7 @@ import { Inventory } from './inventory.schema';
 import { CreateProductDto, UpdateProductDto, UpdateInventoryDto, ProductQueryDto, ProductVariantDto } from './dto/product.dto';
 import { ProductVariant } from './product-variant.schema';
 import { InventoryService } from '../inventory/inventory.service';
+import { expandProductMedia, normalizeProductMedia, toStorageKey } from '../common/media-url';
 
 @Injectable()
 export class ProductsService {
@@ -35,7 +36,7 @@ export class ProductsService {
                 color: v.color?.trim() || undefined,
                 price: v.price ?? basePrice,
                 sku: v.sku?.trim() || `SKU-${(productId || 'NEW').slice(-6).toUpperCase()}-${index + 1}`,
-                image: v.image?.trim() || undefined,
+                image: v.image?.trim() ? toStorageKey(v.image.trim()) : undefined,
                 isActive: v.isActive !== false,
             } as ProductVariant));
     }
@@ -68,13 +69,14 @@ export class ProductsService {
             ? (product as ProductDocument).toObject()
             : { ...product };
         const hasVariants = this.hasVariants(obj as Product);
-        return this.inventoryService.attachStockToProduct(
+        const withStock = await this.inventoryService.attachStockToProduct(
             tenantId,
             obj as Product & { variants?: ProductVariant[]; price: number },
             (p, v) => this.getVariantPrice(p as Product, v),
             hasVariants,
             { migrateVariants: true },
         );
+        return expandProductMedia(withStock as Record<string, unknown>);
     }
 
     private generateSlug(title: string): string {
@@ -86,7 +88,8 @@ export class ProductsService {
     }
 
     async create(tenantId: string, createProductDto: CreateProductDto): Promise<Product> {
-        const { sku, stock, lowStockThreshold, variants, availableSizes, availableColors, ...productData } = createProductDto;
+        const { sku, stock, lowStockThreshold, variants, availableSizes, availableColors, ...rest } = createProductDto;
+        const productData = normalizeProductMedia(rest as Record<string, unknown>) as typeof rest;
 
         if (!productData.slug) {
             productData.slug = this.generateSlug(productData.title);
@@ -134,7 +137,7 @@ export class ProductsService {
             });
         }
 
-        return savedProduct;
+        return expandProductMedia(savedProduct.toObject() as unknown as Record<string, unknown>) as unknown as Product;
     }
 
     async findAll(
@@ -172,13 +175,14 @@ export class ProductsService {
             products.map(async (product) => {
                 const obj = product.toObject();
                 const hasVariants = this.hasVariants(obj);
-                return this.inventoryService.attachStockToProduct(
+                const withStock = await this.inventoryService.attachStockToProduct(
                     tenantId,
                     obj,
                     (p, v) => this.getVariantPrice(p as Product, v),
                     hasVariants,
                     { migrateVariants: false },
                 );
+                return expandProductMedia(withStock as Record<string, unknown>);
             }),
         );
 
@@ -205,7 +209,7 @@ export class ProductsService {
         if (!existing) return null;
 
         const { variants, availableSizes, availableColors, ...rest } = updateDto;
-        const updatePayload: Record<string, unknown> = { ...rest };
+        const updatePayload: Record<string, unknown> = normalizeProductMedia({ ...rest });
 
         if (variants !== undefined) {
             const basePrice = updateDto.price ?? existing.price;
@@ -237,11 +241,14 @@ export class ProductsService {
             if (availableColors !== undefined) updatePayload.availableColors = availableColors;
         }
 
-        return this.productModel.findOneAndUpdate(
+        const updated = await this.productModel.findOneAndUpdate(
             { _id: new Types.ObjectId(id), tenantId: new Types.ObjectId(tenantId) },
             updatePayload,
             { new: true },
         ).exec();
+
+        if (!updated) return null;
+        return this.enrichProduct(tenantId, updated);
     }
 
     async delete(tenantId: string, id: string): Promise<void> {
@@ -278,11 +285,14 @@ export class ProductsService {
         const product = await this.findById(tenantId, id);
         if (!product) return null;
 
-        return this.productModel.findOneAndUpdate(
+        const updated = await this.productModel.findOneAndUpdate(
             { _id: new Types.ObjectId(id), tenantId: new Types.ObjectId(tenantId) },
             { isFeatured: !product.isFeatured },
             { new: true },
         ).exec();
+
+        if (!updated) return null;
+        return this.enrichProduct(tenantId, updated);
     }
 
     async getInventory(tenantId: string, productId: string): Promise<Inventory | null> {

@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { StoreConfig, StoreConfigDocument } from './store-config.schema';
 import { UpdateStoreConfigDto } from './dto/store-config.dto';
+import { expandStoreConfigMedia, normalizeStoreConfigMedia } from '../common/media-url';
 
 const DEFAULT_CATEGORIES = [
     { name: 'Rings', slug: 'rings', showInNavbar: true, order: 0 },
@@ -17,6 +18,14 @@ export class StoreConfigService {
     constructor(
         @InjectModel(StoreConfig.name) private configModel: Model<StoreConfigDocument>,
     ) { }
+
+    private toResponse(config: StoreConfigDocument | StoreConfig): StoreConfig {
+        const obj =
+            typeof (config as StoreConfigDocument).toObject === 'function'
+                ? (config as StoreConfigDocument).toObject()
+                : { ...config };
+        return expandStoreConfigMedia(obj as Record<string, unknown>) as unknown as StoreConfig;
+    }
 
     async getOrCreate(tenantId: string): Promise<StoreConfig> {
         let config = await this.configModel.findOne({
@@ -43,7 +52,7 @@ export class StoreConfigService {
         // Note: We no longer force defaults on existing configs
         // This allows admins to delete categories without them being restored
 
-        return config;
+        return this.toResponse(config);
     }
 
     async getPublicConfig(tenantId: string): Promise<Partial<StoreConfig>> {
@@ -75,10 +84,16 @@ export class StoreConfigService {
     async update(tenantId: string, updateDto: UpdateStoreConfigDto): Promise<StoreConfig> {
         await this.getOrCreate(tenantId); // Ensure exists
 
-        return this.configModel.findOneAndUpdate(
+        const normalized = normalizeStoreConfigMedia(
+            updateDto as unknown as Record<string, unknown>,
+        );
+
+        const updated = await this.configModel.findOneAndUpdate(
             { tenantId: new Types.ObjectId(tenantId) },
-            updateDto,
-            { new: true }
+            normalized,
+            { new: true },
         ).exec();
+
+        return this.toResponse(updated!);
     }
 }

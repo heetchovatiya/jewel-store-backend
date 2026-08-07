@@ -14,6 +14,15 @@ export class OrdersService {
         private readonly checkoutService: CheckoutService,
     ) { }
 
+    /** Serve stored order fields as-is. items[].image is a frozen full URL. */
+    private serializeOrder(order: OrderDocument | Order | null): Order | null {
+        if (!order) return null;
+        if (typeof (order as OrderDocument).toObject === 'function') {
+            return (order as OrderDocument).toObject() as Order;
+        }
+        return { ...(order as Order) };
+    }
+
     private generateOrderNumber(): string {
         const timestamp = Date.now().toString(36).toUpperCase();
         const random = Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -41,7 +50,7 @@ export class OrdersService {
         const savedOrder = await order.save();
         await this.checkoutService.fulfillInventory(tenantId, orderItems);
         await this.cartService.clearCart(tenantId, userId);
-        return savedOrder;
+        return this.serializeOrder(savedOrder)!;
     }
 
     async getUserOrders(tenantId: string, userId: string, query: OrderQueryDto = {}): Promise<{ orders: Order[]; total: number }> {
@@ -57,7 +66,7 @@ export class OrdersService {
             this.orderModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).exec(),
             this.orderModel.countDocuments(filter),
         ]);
-        return { orders, total };
+        return { orders: orders.map((o) => this.serializeOrder(o)!), total };
     }
 
     async getOrderById(tenantId: string, orderId: string, userId?: string): Promise<Order | null> {
@@ -66,7 +75,8 @@ export class OrdersService {
             tenantId: new Types.ObjectId(tenantId),
         };
         if (userId) filter.userId = new Types.ObjectId(userId);
-        return this.orderModel.findOne(filter).exec();
+        const order = await this.orderModel.findOne(filter).exec();
+        return this.serializeOrder(order);
     }
 
     async getOrderByNumber(tenantId: string, orderNumber: string, userId?: string): Promise<Order | null> {
@@ -75,7 +85,8 @@ export class OrdersService {
             tenantId: new Types.ObjectId(tenantId),
         };
         if (userId) filter.userId = new Types.ObjectId(userId);
-        return this.orderModel.findOne(filter).exec();
+        const order = await this.orderModel.findOne(filter).exec();
+        return this.serializeOrder(order);
     }
 
     async getAllOrders(tenantId: string, query: OrderQueryDto = {}): Promise<{ orders: Order[]; total: number }> {
@@ -88,11 +99,14 @@ export class OrdersService {
             this.orderModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).exec(),
             this.orderModel.countDocuments(filter),
         ]);
-        return { orders, total };
+        return { orders: orders.map((o) => this.serializeOrder(o)!), total };
     }
 
     async updateOrderStatus(tenantId: string, orderId: string, updateDto: UpdateOrderStatusDto): Promise<Order | null> {
-        const order = await this.getOrderById(tenantId, orderId);
+        const order = await this.orderModel.findOne({
+            _id: new Types.ObjectId(orderId),
+            tenantId: new Types.ObjectId(tenantId),
+        }).exec();
         if (!order) {
             throw new NotFoundException('Order not found');
         }
@@ -106,11 +120,13 @@ export class OrdersService {
             await this.checkoutService.restoreInventory(tenantId, order.items);
         }
 
-        return this.orderModel.findOneAndUpdate(
+        const updated = await this.orderModel.findOneAndUpdate(
             { _id: new Types.ObjectId(orderId), tenantId: new Types.ObjectId(tenantId) },
             { status: updateDto.status, cancelReason: updateDto.cancelReason },
             { new: true },
         ).exec();
+
+        return this.serializeOrder(updated);
     }
 
     async getOrderStats(tenantId: string): Promise<{

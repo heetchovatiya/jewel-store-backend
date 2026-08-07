@@ -9,6 +9,8 @@
     "start:dev": "ts-node src/main.ts",
     "start:watch": "nodemon --exec ts-node src/main.ts",
     "migrate:priyincigold-dbs": "bash ./scripts/migrate_to_priyincigold_dbs.sh",
+    "migrate:media-keys": "ts-node scripts/migrate-media-keys.ts",
+    "migrate:media-keys:commit": "ts-node scripts/migrate-media-keys.ts --commit",
     "test": "jest",
     "test:watch": "jest --watch"
   },

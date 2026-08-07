@@ -7,6 +7,7 @@ import { InventoryService } from '../inventory/inventory.service';
 import { AddToCartDto, UpdateCartItemDto } from './dto/cart.dto';
 import { ProductVariant } from '../products/product-variant.schema';
 import { CartItem as CartItemDto, CartResponse } from '../types/commerce';
+import { getPublicUrl, toStorageKey } from '../common/media-url';
 
 @Injectable()
 export class CartService {
@@ -43,7 +44,7 @@ export class CartService {
             color: raw.color,
             title: raw.title,
             price: raw.price,
-            image: raw.image,
+            image: getPublicUrl(raw.image),
             quantity: raw.quantity,
             sku: raw.sku,
         };
@@ -84,7 +85,7 @@ export class CartService {
         const price = variant
             ? this.productsService.getVariantPrice(product, variant)
             : product.price;
-        const image = variant?.image || product.images?.[0] || '';
+        const image = toStorageKey(variant?.image || product.images?.[0] || '');
         const titleParts = [product.title];
         if (variant?.size) titleParts.push(`Size ${variant.size}`);
         if (variant?.color) titleParts.push(variant.color);

@@ -72,6 +72,7 @@ export class UploadService {
             '';
 
         const rawDomain =
+            this.configService.get<string>('CDN_BASE_URL') ||
             this.configService.get<string>('R2_PUBLIC_DOMAIN') ||
             this.configService.get<string>('S3_CUSTOM_DOMAIN') ||
             '';
@@ -91,22 +92,32 @@ export class UploadService {
         return `${folder}/${timestamp}-${randomId}-${sanitizedFilename}`;
     }
 
-    private extractKeyFromUrl(publicUrl: string): string | null {
+    /** Accept bare object key or full CDN/Spaces URL. */
+    private resolveKey(keyOrUrl: string): string | null {
+        if (!keyOrUrl?.trim()) return null;
+        const trimmed = keyOrUrl.trim();
+        if (!/^https?:\/\//i.test(trimmed)) {
+            return trimmed.replace(/^\//, '');
+        }
         try {
-            const url = new URL(publicUrl);
-            return url.pathname.replace(/^\//, '');
+            return new URL(trimmed).pathname.replace(/^\//, '') || null;
         } catch {
             return null;
         }
     }
 
-    /** Public asset URL via Hostinger/Cloudflare CNAME — never the raw R2 API endpoint. */
+    /** Public asset URL via CDN_BASE_URL / R2_PUBLIC_DOMAIN — never the raw R2 API endpoint. */
     private buildPublicUrl(key: string): string {
         if (!this.publicDomain) {
-            this.logger.warn('R2_PUBLIC_DOMAIN is not set; public URLs may be incorrect');
+            this.logger.warn('CDN_BASE_URL / R2_PUBLIC_DOMAIN is not set; public URLs may be incorrect');
             return key;
         }
         return `${this.publicDomain}/${key}`;
+    }
+
+    /** Expose public URL builder for callers that already have a storage key. */
+    getPublicUrl(key: string): string {
+        return this.buildPublicUrl(key);
     }
 
     /**
@@ -139,12 +150,12 @@ export class UploadService {
     }
 
     /**
-     * Delete by CDN URL pathname (Class A). No ListObjects.
+     * Delete by object key or CDN URL pathname (Class A). No ListObjects.
      */
-    async deleteFile(publicUrl: string): Promise<boolean> {
-        const key = this.extractKeyFromUrl(publicUrl);
+    async deleteFile(keyOrUrl: string): Promise<boolean> {
+        const key = this.resolveKey(keyOrUrl);
         if (!key) {
-            this.logger.warn(`Could not extract key from URL: ${publicUrl}`);
+            this.logger.warn(`Could not resolve R2 key from: ${keyOrUrl}`);
             return false;
         }
 

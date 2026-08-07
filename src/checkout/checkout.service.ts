@@ -5,6 +5,7 @@ import { ProductsService } from '../products/products.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { OrderItem } from '../orders/order.schema';
 import { CartItem as CartItemDto } from '../types/commerce';
+import { getPublicUrl, toStorageKey } from '../common/media-url';
 
 export interface BuiltCheckout {
     orderItems: OrderItem[];
@@ -77,7 +78,11 @@ export class CheckoutService {
             color: cartItem.color,
             title: cartItem.title,
             price: cartItem.price,
-            image: cartItem.image,
+            // Order images are immutable snapshots of what the customer saw at
+            // purchase time. Always store a full absolute CDN URL — never a bare
+            // key — so historical orders never depend on live URL resolution or
+            // future storage/CDN migrations.
+            image: getPublicUrl(toStorageKey(cartItem.image)),
             quantity: cartItem.quantity,
             sku: cartItem.sku || stock.sku || '',
         } as OrderItem;
