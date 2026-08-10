@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -7,6 +7,23 @@ async function bootstrap() {
         bodyParser: true,
         rawBody: true,
     });
+
+    // ConfigModule.forRoot loads .env into process.env during AppModule init.
+    // getPublicUrl() reads these at request time — if missing, APIs silently
+    // return bare object keys and images 404 on the frontend.
+    const cdnBase =
+        (process.env.CDN_BASE_URL || process.env.R2_PUBLIC_DOMAIN || '').replace(/\/$/, '');
+    if (!cdnBase) {
+        const msg =
+            'CDN_BASE_URL or R2_PUBLIC_DOMAIN must be set (e.g. https://cdn.priyancigold.com). ' +
+            'Without it, product/config image fields are returned as bare storage keys.';
+        if ((process.env.NODE_ENV || '').toLowerCase() === 'production') {
+            throw new Error(`[CDN] ${msg}`);
+        }
+        Logger.warn(`[CDN] ${msg}`);
+    } else {
+        Logger.log(`[CDN] Public media base URL: ${cdnBase}`);
+    }
 
     // Increase body size limit to 50MB for file uploads
     app.use((req, res, next) => {

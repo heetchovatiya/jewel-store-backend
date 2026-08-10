@@ -24,7 +24,17 @@ jobs:
             git pull origin main
             npm install --production
             npm run build
-            pm2 restart jewel-api || pm2 start dist/main.js --name "jewel-api"
+            # Full recreate so process env is rebuilt (pm2 restart does not reload env)
+            pm2 delete jewel-api || true
+            # Export .env into the shell so PM2 captures CDN_* into the process env
+            set -a
+            # shellcheck disable=SC1091
+            . ./.env
+            set +a
+            pm2 start npm --name jewel-api --cwd "$(pwd)" --update-env -- run start
+            pm2 save
+            echo "=== PM2 CDN env ==="
+            pm2 env 0 | grep -iE 'CDN|R2_PUBLIC' || echo "(not in pm2 env — Nest may still load via ConfigModule from .env)"
             
       - name: Send Email - Success
         if: success()
