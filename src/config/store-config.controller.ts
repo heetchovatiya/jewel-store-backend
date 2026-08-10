@@ -1,4 +1,6 @@
-import { Controller, Get, Patch, Body, Req, UseGuards } from '@nestjs/common';
+import {
+    Controller, Get, Patch, Body, Req, UseGuards, Header,
+} from '@nestjs/common';
 import { Request } from 'express';
 import { StoreConfigService } from './store-config.service';
 import { UpdateStoreConfigDto } from './dto/store-config.dto';
@@ -11,6 +13,7 @@ export class StoreConfigController {
     constructor(private readonly configService: StoreConfigService) { }
 
     @Get()
+    @Header('Cache-Control', 'public, max-age=120, stale-while-revalidate=600')
     getPublicConfig(@Req() req: Request) {
         return this.configService.getPublicConfig(req.tenantId!);
     }

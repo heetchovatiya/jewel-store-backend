@@ -265,6 +265,25 @@ export class ProductsService {
         });
     }
 
+    /** Lightweight list for sitemap generation */
+    async findAllSlugsAndDates(
+        tenantId: string,
+    ): Promise<Array<{ slug: string; updatedAt: Date }>> {
+        const rows = await this.productModel
+            .find({
+                tenantId: new Types.ObjectId(tenantId),
+                isActive: true,
+            })
+            .select({ slug: 1, updatedAt: 1 })
+            .lean()
+            .exec();
+
+        return rows.map((row: any) => ({
+            slug: row.slug as string,
+            updatedAt: (row.updatedAt as Date) || new Date(),
+        }));
+    }
+
     async getFeaturedProducts(tenantId: string, limit: number = 8): Promise<Product[]> {
         const products = await this.productModel
             .find({

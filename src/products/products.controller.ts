@@ -1,6 +1,6 @@
 import {
     Controller, Get, Post, Patch, Delete, Body, Param, Query,
-    Req, UseGuards, UseInterceptors, UploadedFile
+    Req, UseGuards, UseInterceptors, UploadedFile, Header,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
@@ -15,21 +15,32 @@ export class ProductsController {
     constructor(private readonly productsService: ProductsService) { }
 
     @Get()
+    @Header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300')
     findAll(@Req() req: Request, @Query() query: ProductQueryDto) {
         return this.productsService.findAll(req.tenantId!, query);
     }
 
     @Get('categories')
+    @Header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300')
     getCategories(@Req() req: Request) {
         return this.productsService.getCategories(req.tenantId!);
     }
 
     @Get('featured')
+    @Header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300')
     getFeatured(@Req() req: Request) {
         return this.productsService.getFeaturedProducts(req.tenantId!);
     }
 
+    /** Sitemap helper — must stay above :slug */
+    @Get('slugs')
+    @Header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300')
+    getSlugs(@Req() req: Request) {
+        return this.productsService.findAllSlugsAndDates(req.tenantId!);
+    }
+
     @Get(':slug')
+    @Header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300')
     findBySlug(@Req() req: Request, @Param('slug') slug: string) {
         return this.productsService.getProductWithInventory(req.tenantId!, slug);
     }

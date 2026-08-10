@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -24,6 +25,25 @@ async function bootstrap() {
     } else {
         Logger.log(`[CDN] Public media base URL: ${cdnBase}`);
     }
+
+    app.use(
+        helmet({
+            contentSecurityPolicy: {
+                directives: {
+                    defaultSrc: ["'self'"],
+                    scriptSrc: ["'self'"],
+                    imgSrc: ["'self'", 'data:', 'https:'],
+                    styleSrc: ["'self'", "'unsafe-inline'"],
+                    connectSrc: ["'self'", 'https:'],
+                },
+            },
+            hsts: { maxAge: 63072000, includeSubDomains: true, preload: true },
+            crossOriginOpenerPolicy: false,
+            frameguard: { action: 'deny' },
+            // API is cross-origin from www; avoid COEP breaking browser fetches
+            crossOriginResourcePolicy: { policy: 'cross-origin' },
+        }),
+    );
 
     // Increase body size limit to 50MB for file uploads
     app.use((req, res, next) => {
