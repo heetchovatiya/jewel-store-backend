@@ -11,6 +11,7 @@ import { LeadsModule } from './leads/leads.module';
 import { StoreConfigModule } from './config/store-config.module';
 import { UploadModule } from './upload/upload.module';
 import { PaymentsModule } from './payments/payments.module';
+import { ShippingModule } from './shipping/shipping.module';
 import { resolveMongoUri } from './config/database.config';
 @Module({
     imports: [
@@ -29,6 +30,7 @@ import { resolveMongoUri } from './config/database.config';
         StoreConfigModule,
         UploadModule,
         PaymentsModule,
+        ShippingModule,
     ],
 })
 

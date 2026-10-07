@@ -4,9 +4,9 @@ import { Model, Types } from 'mongoose';
 import { Cart, CartDocument, CartItem } from './cart.schema';
 import { ProductsService } from '../products/products.service';
 import { InventoryService } from '../inventory/inventory.service';
-import { AddToCartDto, UpdateCartItemDto } from './dto/cart.dto';
+import { AddToCartDto, UpdateCartItemDto, GuestCartItemDto } from './dto/cart.dto';
 import { ProductVariant } from '../products/product-variant.schema';
-import { CartItem as CartItemDto, CartResponse } from '../types/commerce';
+import { CartItem as CartItemDto, CartIssue, CartResponse } from '../types/commerce';
 import { getPublicUrl, toStorageKey } from '../common/media-url';
 
 @Injectable()
@@ -261,6 +261,137 @@ export class CartService {
         }
 
         return this.removeFromCartByLineId(tenantId, userId, this.toLineId(cart.items[itemIndex]));
+    }
+
+    /** Stable id for a guest line (no DB row exists yet). */
+    static guestLineId(productId: string, variantId?: string): string {
+        return `g:${productId}:${variantId || ''}`;
+    }
+
+    /**
+     * Price and validate a guest cart (kept in the browser) without saving it.
+     * Prices, titles and images always come from the database, never the client.
+     * Lines that no longer exist are dropped; quantities are capped at stock.
+     */
+    async previewGuestCart(tenantId: string, lines: GuestCartItemDto[]): Promise<CartResponse> {
+        const items: CartItemDto[] = [];
+        const issues: CartIssue[] = [];
+        const seen = new Set<string>();
+
+        for (const line of lines) {
+            const key = CartService.guestLineId(line.productId, line.variantId);
+            if (seen.has(key)) continue;
+            seen.add(key);
+
+            if (!Types.ObjectId.isValid(line.productId) || (line.variantId && !Types.ObjectId.isValid(line.variantId))) {
+                issues.push({ productId: line.productId, variantId: line.variantId, message: 'Item no longer available' });
+                continue;
+            }
+
+            const product = await this.productsService.findById(tenantId, line.productId);
+            if (!product || product.isActive === false) {
+                issues.push({ productId: line.productId, variantId: line.variantId, message: 'Item no longer available' });
+                continue;
+            }
+
+            let variant: ProductVariant | null = null;
+            if (this.productsService.hasVariants(product)) {
+                variant = line.variantId ? this.productsService.getVariant(product, line.variantId) : null;
+                if (!variant || variant.isActive === false) {
+                    issues.push({
+                        productId: line.productId,
+                        variantId: line.variantId,
+                        title: product.title,
+                        message: 'Selected size/colour is no longer available',
+                    });
+                    continue;
+                }
+            }
+
+            const snapshot = await this.inventoryService.getStockSnapshot(tenantId, line.productId, line.variantId);
+            let quantity = line.quantity;
+            if (snapshot.trackInventory && !snapshot.allowBackorder) {
+                const available = Math.max(0, snapshot.stock);
+                if (available === 0) {
+                    issues.push({ productId: line.productId, variantId: line.variantId, title: product.title, message: 'Out of stock' });
+                    continue;
+                }
+                if (quantity > available) {
+                    issues.push({
+                        productId: line.productId,
+                        variantId: line.variantId,
+                        title: product.title,
+                        message: `Only ${available} available, quantity updated`,
+                    });
+                    quantity = available;
+                }
+            }
+
+            const resolved = this.resolveLineItem(product, variant, quantity, snapshot.sku);
+            items.push({
+                lineId: CartService.guestLineId(line.productId, line.variantId),
+                productId: line.productId,
+                variantId: variant ? line.variantId : undefined,
+                size: resolved.size,
+                color: resolved.color,
+                title: resolved.title!,
+                price: resolved.price!,
+                image: getPublicUrl(resolved.image || ''),
+                quantity,
+                sku: resolved.sku,
+            });
+        }
+
+        const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
+        return { items, total, itemCount, issues };
+    }
+
+    /**
+     * Merge a guest cart into the logged-in user's cart (called right after login).
+     * Quantities for the same product/variant are added together and capped at stock.
+     * Lines that cannot be added are skipped and reported in `issues`.
+     */
+    async mergeGuestCart(tenantId: string, userId: string, lines: GuestCartItemDto[]): Promise<CartResponse> {
+        const preview = await this.previewGuestCart(tenantId, lines);
+        const issues: CartIssue[] = [...(preview.issues || [])];
+
+        for (const item of preview.items) {
+            const cart = await this.getOrCreateCart(tenantId, userId);
+            const existingQty = cart.items.find(
+                i => this.matchesCartItem(i, item.productId, item.variantId),
+            )?.quantity || 0;
+
+            let qtyToAdd = item.quantity;
+            const snapshot = await this.inventoryService.getStockSnapshot(tenantId, item.productId, item.variantId);
+            if (snapshot.trackInventory && !snapshot.allowBackorder) {
+                qtyToAdd = Math.min(qtyToAdd, Math.max(0, snapshot.stock - existingQty));
+            }
+            if (qtyToAdd <= 0) {
+                if (existingQty === 0) {
+                    issues.push({ productId: item.productId, variantId: item.variantId, title: item.title, message: 'Out of stock' });
+                }
+                continue;
+            }
+
+            try {
+                await this.addToCart(tenantId, userId, {
+                    productId: item.productId,
+                    variantId: item.variantId,
+                    quantity: qtyToAdd,
+                });
+            } catch (err: any) {
+                issues.push({
+                    productId: item.productId,
+                    variantId: item.variantId,
+                    title: item.title,
+                    message: err?.message || 'Could not add item',
+                });
+            }
+        }
+
+        const merged = await this.getCart(tenantId, userId);
+        return { ...merged, issues };
     }
 
     async clearCart(tenantId: string, userId: string): Promise<void> {

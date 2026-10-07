@@ -9,6 +9,7 @@ import { StoreConfigService } from '../config/store-config.service';
 import { Order, OrderDocument, OrderStatus, PaymentMethod } from '../orders/order.schema';
 import { ShippingAddressDto } from '../orders/dto/order.dto';
 import { UsersService } from '../users/users.service';
+import { ShippingService } from '../shipping/shipping.service';
 
 @Injectable()
 export class PaymentsService {
@@ -20,6 +21,7 @@ export class PaymentsService {
         private readonly checkoutService: CheckoutService,
         private readonly storeConfigService: StoreConfigService,
         private readonly usersService: UsersService,
+        private readonly shippingService: ShippingService,
     ) { }
 
     private generateOrderNumber(): string {
@@ -75,6 +77,8 @@ export class PaymentsService {
 
     async initiatePayment(tenantId: string, userId: string, shippingAddress: ShippingAddressDto) {
         await this.validateShippingAddressByPincode(shippingAddress);
+        // Blue Dart: block only when the PIN code is clearly not serviceable (fails open if API is down)
+        await this.shippingService.assertDeliverable(shippingAddress.pincode, 'prepaid');
         const { keyId, keySecret } = await this.getRazorpayCredentials(tenantId);
         const { orderItems, subtotal, tax, shippingCost, total } =
             await this.checkoutService.buildFromCart(tenantId, userId);
@@ -117,6 +121,7 @@ export class PaymentsService {
 
     async placeCodOrder(tenantId: string, userId: string, shippingAddress: ShippingAddressDto) {
         await this.validateShippingAddressByPincode(shippingAddress);
+        await this.shippingService.assertDeliverable(shippingAddress.pincode, 'cod');
         const { orderItems, subtotal, tax, shippingCost, total } =
             await this.checkoutService.buildFromCart(tenantId, userId);
         const orderNumber = this.generateOrderNumber();

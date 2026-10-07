@@ -61,6 +61,13 @@ export class User {
     @Prop({ type: String, enum: UserRole, default: UserRole.CUSTOMER })
     role: UserRole;
 
+    /** Who last changed this user's role (admin panel), and when. */
+    @Prop({ type: Types.ObjectId })
+    roleChangedBy?: Types.ObjectId;
+
+    @Prop()
+    roleChangedAt?: Date;
+
     @Prop({ type: [AddressSchema], default: [] })
     addresses: Address[];
 

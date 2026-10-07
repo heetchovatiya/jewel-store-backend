@@ -1,4 +1,5 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsEnum } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsOptional, IsEnum, IsInt, Min, Max, IsIn } from 'class-validator';
+import { Type } from 'class-transformer';
 import { UserRole } from '../user.schema';
 
 export class CreateUserDto {
@@ -16,9 +17,8 @@ export class CreateUserDto {
     @IsString()
     phone?: string;
 
-    @IsOptional()
-    @IsEnum(UserRole)
-    role?: UserRole;
+    // SECURITY: no `role` here. Public signup always creates a customer.
+    // Admins are promoted with `npm run make-admin -- <email>` (see scripts/make-admin.ts).
 }
 
 export class LoginDto {
@@ -68,4 +68,35 @@ export class AddAddressDto {
 
     @IsOptional()
     isDefault?: boolean;
+}
+
+/** Admin panel: change a user's role. */
+export class UpdateUserRoleDto {
+    @IsEnum(UserRole)
+    role: UserRole;
+}
+
+/** Admin panel: list/search users. */
+export class AdminUserQueryDto {
+    @IsOptional()
+    @IsString()
+    search?: string;
+
+    /** 'staff' = admin + super_admin */
+    @IsOptional()
+    @IsIn(['customer', 'admin', 'super_admin', 'staff'])
+    role?: 'customer' | 'admin' | 'super_admin' | 'staff';
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    page?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    @Max(100)
+    limit?: number;
 }

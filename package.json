@@ -12,7 +12,8 @@
     "migrate:media-keys": "ts-node scripts/migrate-media-keys.ts",
     "migrate:media-keys:commit": "ts-node scripts/migrate-media-keys.ts --commit",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "make-admin": "ts-node scripts/make-admin.ts"
   },
   "keywords": [
     "ecommerce",

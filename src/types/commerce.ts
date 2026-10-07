@@ -59,6 +59,23 @@ export interface CartResponse {
     items: CartItem[];
     total: number;
     itemCount: number;
+    /** Lines that were dropped or reduced (guest-cart preview / merge). */
+    issues?: CartIssue[];
+}
+
+/** A guest-cart line that could not be kept as-is. */
+export interface CartIssue {
+    productId: string;
+    variantId?: string;
+    title?: string;
+    message: string;
+}
+
+/** Minimal line stored in the browser for logged-out shoppers. */
+export interface GuestCartLine {
+    productId: string;
+    variantId?: string;
+    quantity: number;
 }
 
 export interface OrderItem {

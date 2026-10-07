@@ -77,6 +77,77 @@ export class ShippingAddress {
 
 export const ShippingAddressSchema = SchemaFactory.createForClass(ShippingAddress);
 
+/** Courier shipment (Blue Dart waybill) attached to an order. */
+@Schema({ _id: false })
+export class Shipment {
+    @Prop({ default: 'bluedart' })
+    carrier: string;
+
+    @Prop({ index: true })
+    awbNo: string;
+
+    /** 'created' = waybill active, 'cancelled' = waybill cancelled with Blue Dart. */
+    @Prop({ default: 'created' })
+    status: string;
+
+    @Prop()
+    tokenNumber: string;
+
+    @Prop()
+    destinationArea: string;
+
+    @Prop()
+    destinationLocation: string;
+
+    @Prop()
+    productCode: string;
+
+    @Prop()
+    subProductCode: string;
+
+    @Prop()
+    referenceNo: string;
+
+    @Prop()
+    weightKg: number;
+
+    @Prop()
+    pieces: number;
+
+    @Prop()
+    pickupDate: Date;
+
+    @Prop({ default: false })
+    pickupRegistered: boolean;
+
+    @Prop({ default: false })
+    hasLabel: boolean;
+
+    @Prop()
+    createdAt: Date;
+
+    @Prop()
+    cancelledAt: Date;
+
+    /** Number of waybills generated for this order (used to keep reference numbers unique). */
+    @Prop({ default: 0 })
+    attempts: number;
+
+    @Prop()
+    lastStatus: string;
+
+    @Prop()
+    lastStatusType: string;
+
+    @Prop()
+    expectedDeliveryDate: string;
+
+    @Prop()
+    lastTrackedAt: Date;
+}
+
+export const ShipmentSchema = SchemaFactory.createForClass(Shipment);
+
 @Schema({ timestamps: true })
 export class Order {
     @Prop({ required: true, type: Types.ObjectId, index: true })
@@ -126,6 +197,13 @@ export class Order {
 
     @Prop()
     paymentCapturedAt: Date;
+
+    @Prop({ type: ShipmentSchema })
+    shipment?: Shipment;
+
+    /** Base64 PDF label from Blue Dart. Not returned in normal queries (can be large). */
+    @Prop({ select: false })
+    shipmentLabelPdf?: string;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);

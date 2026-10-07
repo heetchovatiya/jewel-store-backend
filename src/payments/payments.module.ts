@@ -7,6 +7,7 @@ import { CheckoutModule } from '../checkout/checkout.module';
 import { StoreConfigModule } from '../config/store-config.module';
 import { Order, OrderSchema } from '../orders/order.schema';
 import { UsersModule } from '../users/users.module';
+import { ShippingModule } from '../shipping/shipping.module';
 
 @Module({
     imports: [
@@ -15,6 +16,7 @@ import { UsersModule } from '../users/users.module';
         CheckoutModule,
         StoreConfigModule,
         UsersModule,
+        ShippingModule,
     ],
     controllers: [PaymentsController],
     providers: [PaymentsService],

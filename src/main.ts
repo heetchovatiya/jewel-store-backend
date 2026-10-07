@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { getAllowedOrigins, getJwtSecret, isOriginAllowed } from './common/security-config';
 
 async function bootstrap() {
     const app = await NestFactory.create(AppModule, {
@@ -55,9 +56,19 @@ async function bootstrap() {
         }
     });
 
-    // Allow ALL origins (for debugging)
+    // Fail fast in production if JWT_SECRET is missing/placeholder.
+    getJwtSecret();
+
+    // CORS: only our storefront (and configured preview/dev origins) may call the API from a browser.
+    // Requests without an Origin header (server-side rendering, Razorpay webhooks, curl) are unaffected.
+    const allowedOrigins = getAllowedOrigins();
+    Logger.log(`[CORS] Allowed origins: ${allowedOrigins.map(String).join(', ')}`);
     app.enableCors({
-        origin: true,
+        origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+            if (!origin || isOriginAllowed(origin, allowedOrigins)) return callback(null, true);
+            Logger.warn(`[CORS] Blocked origin: ${origin}`);
+            return callback(null, false);
+        },
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],

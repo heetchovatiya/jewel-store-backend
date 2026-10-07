@@ -1,8 +1,21 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { Request } from 'express';
 import { CartService } from './cart.service';
-import { AddToCartDto, UpdateCartItemDto } from './dto/cart.dto';
+import { AddToCartDto, UpdateCartItemDto, GuestCartDto } from './dto/cart.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+
+/** Public cart endpoints: usable by logged-out shoppers. */
+@Controller('cart')
+export class GuestCartController {
+    constructor(private readonly cartService: CartService) { }
+
+    /** Price/validate a browser-held guest cart. Nothing is saved. */
+    @Post('preview')
+    @HttpCode(HttpStatus.OK)
+    preview(@Req() req: Request, @Body() dto: GuestCartDto) {
+        return this.cartService.previewGuestCart(req.tenantId!, dto.items);
+    }
+}
 
 @Controller('cart')
 @UseGuards(JwtAuthGuard)
@@ -12,6 +25,13 @@ export class CartController {
     @Get()
     getCart(@Req() req: Request) {
         return this.cartService.getCart(req.tenantId!, (req as any).user.userId);
+    }
+
+    /** Merge the guest cart from the browser into this user's cart (call after login). */
+    @Post('merge')
+    @HttpCode(HttpStatus.OK)
+    merge(@Req() req: Request, @Body() dto: GuestCartDto) {
+        return this.cartService.mergeGuestCart(req.tenantId!, (req as any).user.userId, dto.items);
     }
 
     @Post('items')
